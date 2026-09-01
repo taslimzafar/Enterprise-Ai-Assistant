@@ -1,38 +1,50 @@
-import os
-
-from dotenv import load_dotenv
 from fastapi import FastAPI
-from openai import OpenAI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
-load_dotenv()
-print("API KEY LOADED:", bool(os.getenv("OPENAI_API_KEY")))
+from app.core.config import settings
+from app.core.logging import logger
+from app.api.main import api_router
 
-app = FastAPI(
-    title="Enterprise AI Assistant",
-    description="Agentic Knowledge & Workflow Assistant",
-    version="0.1.0"
-)
-
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
-)
-
-
-@app.get("/")
-def root():
-    return {
-        "message": "Enterprise AI Assistant API is running!"
-    }
-
-
-@app.get("/ask")
-def ask_ai(question: str):
-    response = client.responses.create(
-        model="gpt-5-mini",
-        input=question
+def create_app() -> FastAPI:
+    """
+    Application factory pattern to create and configure the FastAPI app.
+    """
+    logger.info(f"Starting {settings.PROJECT_NAME} in {settings.ENVIRONMENT} mode.")
+    
+    app = FastAPI(
+        title=settings.PROJECT_NAME,
+        version=settings.VERSION,
+        description="Agentic Knowledge & Workflow Assistant",
+        openapi_url=f"{settings.API_V1_STR}/openapi.json",
+        docs_url=f"{settings.API_V1_STR}/docs",
+        redoc_url=f"{settings.API_V1_STR}/redoc",
     )
 
-    return {
-        "question": question,
-        "answer": response.output_text
-    }
+    # Set up CORS middleware
+    # In production, specify exact origins
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Include main API router
+    app.include_router(api_router, prefix=settings.API_V1_STR)
+
+    @app.get("/")
+    def root():
+        return {
+            "message": f"{settings.PROJECT_NAME} API is running!",
+            "docs": f"{settings.API_V1_STR}/docs"
+        }
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return Response(content=b"", media_type="image/x-icon")
+        
+    return app
+
+app = create_app()
