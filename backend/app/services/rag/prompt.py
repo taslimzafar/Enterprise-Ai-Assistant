@@ -18,3 +18,29 @@ USER QUESTION:
 {question}
 
 Please provide a grounded, factual answer based solely on the context above, citing sources where appropriate:"""
+
+
+def format_chat_rag_prompt(
+    question: str,
+    context: str,
+    conversation_history: list[dict] | None = None,
+) -> str:
+    """Format the grounded RAG user prompt combining document context, recent chat history, and current question."""
+    history_str = ""
+    if conversation_history:
+        formatted_history = []
+        for msg in conversation_history:
+            role_label = "User" if msg.get("role") == "user" else "Assistant"
+            content = msg.get("content", "").strip()
+            if content:
+                formatted_history.append(f"{role_label}: {content}")
+        if formatted_history:
+            history_str = "RECENT CONVERSATION HISTORY:\n" + "\n".join(formatted_history) + "\n\n"
+
+    return f"""CONTEXT FROM ORGANIZATION DOCUMENTS:
+{context}
+
+{history_str}USER QUESTION:
+{question}
+
+Please provide a grounded, factual answer based solely on the context above, citing sources where appropriate:"""

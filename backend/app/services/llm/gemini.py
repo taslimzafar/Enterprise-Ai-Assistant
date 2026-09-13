@@ -54,3 +54,26 @@ class GeminiLLMProvider(LLMProvider):
                     await asyncio.sleep(2 ** attempt)
         logger.error(f"Gemini LLM generation failed after {self.max_retries} attempts: {last_exception}")
         raise RuntimeError(f"Gemini LLM service error: {last_exception}") from last_exception
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        temperature: float = 0.2,
+    ):
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=temperature,
+        )
+        try:
+            response_stream = await self.client.aio.models.generate_content_stream(
+                model=self.model,
+                contents=prompt,
+                config=config,
+            )
+            async for chunk in response_stream:
+                if chunk.text:
+                    yield chunk.text
+        except Exception as e:
+            logger.error(f"Gemini streaming generation failed: {e}")
+            raise RuntimeError(f"Gemini streaming error: {e}") from e

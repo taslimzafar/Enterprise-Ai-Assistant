@@ -89,6 +89,18 @@ class TestLLMProvider(LLMProvider):
             return "I couldn't find this information in the organization's knowledge base."
         return "Based on the organization documentation, the requested information is verified [Source: test_verify.txt]."
 
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_instruction: str | None = None,
+        temperature: float = 0.2,
+    ):
+        full_text = await self.generate(prompt, system_instruction, temperature)
+        words = full_text.split(" ")
+        for i, word in enumerate(words):
+            yield word + (" " if i < len(words) - 1 else "")
+            await asyncio.sleep(0.005)
+
 
 # Bind test providers
 emb_module._embedding_provider_instance = TestEmbeddingProvider()

@@ -45,9 +45,38 @@ export interface RAGSource {
   page: number | null;
   chunk_index: number;
   score: number;
+  content_snippet?: string;
 }
 
 export interface RAGQueryResponse {
   answer: string;
   sources: RAGSource[];
+}
+
+export type MessageRole = 'user' | 'assistant' | 'system';
+export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled';
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  role: MessageRole;
+  content: string;
+  status: MessageStatus;
+  metadata?: {
+    sources?: RAGSource[];
+    error?: string;
+    cancelled?: boolean;
+    [key: string]: any;
+  } | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface Conversation {
+  id: string;
+  organization_id: string;
+  user_id: string | null;
+  title: string | null;
+  created_at: string;
+  updated_at?: string | null;
 }

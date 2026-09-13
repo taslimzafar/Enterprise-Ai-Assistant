@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, AsyncGenerator
 
 
 class LLMProvider(ABC):
@@ -13,4 +13,14 @@ class LLMProvider(ABC):
         temperature: float = 0.2,
     ) -> str:
         """Generate text completion from prompt with optional system instructions."""
+        pass
+
+    @abstractmethod
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        temperature: float = 0.2,
+    ) -> AsyncGenerator[str, None]:
+        """Yield text token chunks asynchronously as they arrive from the model."""
         pass
