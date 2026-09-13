@@ -129,6 +129,7 @@ class ChatService:
         user_text: str,
         organization_id: str,
         user_id: str,
+        user_role: str = "MEMBER",
     ) -> AsyncGenerator[str, None]:
         """Execute RAG retrieval and stream SSE response tokens with cancellation support."""
         cleaned_query = user_text.strip()
@@ -208,6 +209,7 @@ class ChatService:
                 conversation_id=conversation_id,
                 message=cleaned_query,
                 conversation_history=formatted_history,
+                user_role=user_role,
             )
 
             agent_meta = {
@@ -216,6 +218,7 @@ class ChatService:
                     "intent": "knowledge_question",
                     "retrieval_used": True,
                     "sources_count": 0,
+                    "tools": [],
                 },
                 "sources": [],
             }
@@ -228,6 +231,15 @@ class ChatService:
                     agent_meta["agent"]["intent"] = ev_data.get("intent", "knowledge_question")
                     agent_meta["agent"]["retrieval_used"] = ev_data.get("needs_retrieval", False)
                     yield f"event: agent_intent\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "tool_start":
+                    yield f"event: tool_start\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "tool_complete":
+                    yield f"event: tool_complete\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "tool_error":
+                    yield f"event: tool_error\ndata: {json.dumps(ev_data)}\n\n"
 
                 elif ev_type == "citation":
                     sources = ev_data.get("sources", [])
@@ -243,6 +255,7 @@ class ChatService:
                 elif ev_type == "agent_complete":
                     agent_meta["agent"]["sources_count"] = ev_data.get("sources_count", len(sources))
                     agent_meta["sources"] = ev_data.get("sources", sources)
+                    agent_meta["agent"]["tools"] = ev_data.get("tool_history", [])
 
             # 4. Finalize assistant message in DB with agent execution metadata
             final_content = accumulated_text.strip() or NO_ANSWER_FOUND

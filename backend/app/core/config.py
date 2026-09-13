@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 200  # overlap between chunks
     ALLOWED_DOCUMENT_TYPES: list = ["pdf", "docx", "txt"]
     
+    # Agent & Tool Settings
+    AGENT_MAX_TOOL_CALLS: int = 5
+    TOOL_TIMEOUT_SECONDS: float = 10.0
+    
     model_config = SettingsConfigDict(
         env_file=(".env", "backend/.env", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")),
         env_file_encoding="utf-8",

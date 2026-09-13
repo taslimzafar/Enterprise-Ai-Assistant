@@ -92,15 +92,39 @@ class TestLLMProvider(LLMProvider):
                 return '{"intent": "unsupported"}'
             return '{"intent": "knowledge_question"}'
 
-        # 2. Conversational persona mock
+        # 2. Tool decision reasoning mock
+        if system_instruction and "tool decision" in system_instruction.lower():
+            user_part = prompt.split("User Message:")[-1].split("Decide action")[0].strip().lower() if "User Message:" in prompt else prompt.lower()
+            if any(k in user_part for k in ["calculate", "compute", "math", "25 * 4"]):
+                return '{"action": "call_tool", "tool": "calculator", "arguments": {"expression": "25 * 4"}}'
+            if any(k in user_part for k in ["database", "how many documents", "count documents", "statistics", "stats"]):
+                return '{"action": "call_tool", "tool": "database_query", "arguments": {"operation": "count_documents"}}'
+            if "unknown_tool_trigger" in user_part:
+                return '{"action": "call_tool", "tool": "non_existent_tool", "arguments": {}}'
+            if any(k in user_part for k in ["knowledge", "refund", "policy", "bonus", "secret", "document", "what is"]):
+                q_text = prompt.split("User Message:")[-1].split("Decide action")[0].strip() if "User Message:" in prompt else "query"
+                return json.dumps({"action": "call_tool", "tool": "knowledge_search", "arguments": {"query": q_text}})
+            return '{"action": "direct_answer"}'
+
+        # 3. Conversational persona mock
         if system_instruction and "conversational" in system_instruction.lower():
             return "Hello! I am your Enterprise AI Assistant. How can I help you today with company documentation?"
 
-        # 3. Unsupported query persona mock
+        # 4. Unsupported query persona mock
         if system_instruction and "outside the scope" in system_instruction.lower():
             return "I am designed only to assist with enterprise documentation, workplace policies, and organizational inquiries."
 
-        # 4. RAG and general generation mock
+        # 5. Tool answer synthesis mock
+        if system_instruction and "verified enterprise tool" in system_instruction.lower():
+            if "Error Details:" in prompt:
+                return "The requested action could not be completed due to a permissions or execution constraint."
+            if "calculator" in prompt:
+                return "The calculation result is 100."
+            if "database_query" in prompt:
+                return "Based on your organization data, there are currently verified documents indexed."
+            return "The tool execution completed successfully."
+
+        # 6. RAG and general generation mock
         if "refund" in prompt.lower():
             return "Our refund policy allows full refunds within 30 days of purchase [Source: test_verify.txt]."
         if "unrelated" in prompt.lower() or "secret" in prompt.lower():

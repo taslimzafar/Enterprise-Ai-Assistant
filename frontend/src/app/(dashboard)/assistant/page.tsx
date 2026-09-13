@@ -334,6 +334,20 @@ export default function AssistantChatPage() {
                 } else if (parsed.intent === 'unsupported') {
                   setAgentStatus('Evaluating request...');
                 }
+              } else if (currentEvent === 'tool_start') {
+                if (parsed.tool === 'knowledge_search') {
+                  setAgentStatus('Searching enterprise documents...');
+                } else if (parsed.tool === 'calculator') {
+                  setAgentStatus('Calculating...');
+                } else if (parsed.tool === 'database_query') {
+                  setAgentStatus('Checking organization data...');
+                } else {
+                  setAgentStatus('Running tool...');
+                }
+              } else if (currentEvent === 'tool_complete') {
+                setAgentStatus('Finalizing response...');
+              } else if (currentEvent === 'tool_error') {
+                setAgentStatus('Evaluating response...');
               } else if (currentEvent === 'token') {
                 setAgentStatus(null);
                 if (parsed.text) {

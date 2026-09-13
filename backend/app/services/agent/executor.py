@@ -1,15 +1,19 @@
 import asyncio
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Optional
 from app.core.logging import logger
 from app.services.agent.graph import create_agent_graph
 from app.services.agent.state import AgentState
 from app.services.agent.nodes import (
     classify_intent_node,
+    agent_decision_node,
+    execute_tool_node,
     retrieve_knowledge_node,
 )
 from app.services.agent.prompts import (
     CONVERSATIONAL_SYSTEM_INSTRUCTION,
     UNSUPPORTED_SYSTEM_INSTRUCTION,
+    TOOL_ANSWER_SYSTEM_INSTRUCTION,
+    format_tool_answer_prompt,
 )
 from app.services.llm import get_llm_provider
 from app.services.rag.prompt import RAG_SYSTEM_INSTRUCTION, format_chat_rag_prompt
@@ -35,16 +39,20 @@ class AgentService:
         conversation_id: str,
         message: str,
         conversation_history: list[dict[str, str]] | None = None,
+        user_role: str = "MEMBER",
     ) -> AgentState:
         """Run the full LangGraph agent synchronously to completion."""
         initial_state: AgentState = {
             "organization_id": organization_id,
             "user_id": user_id,
+            "user_role": user_role,
             "conversation_id": conversation_id,
             "user_message": message.strip(),
             "conversation_history": conversation_history or [],
             "sources": [],
             "status": "pending",
+            "tool_call_count": 0,
+            "tool_history": [],
         }
 
         final_state = await self.graph.ainvoke(initial_state)
@@ -57,19 +65,23 @@ class AgentService:
         conversation_id: str,
         message: str,
         conversation_history: list[dict[str, str]] | None = None,
+        user_role: str = "MEMBER",
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute the agent workflow and stream structured lifecycle events and token chunks."""
+        """Execute the agent workflow and stream structured lifecycle events, tool executions, and tokens."""
         query = message.strip()
         history = conversation_history or []
 
         state: AgentState = {
             "organization_id": organization_id,
             "user_id": user_id,
+            "user_role": user_role,
             "conversation_id": conversation_id,
             "user_message": query,
             "conversation_history": history,
             "sources": [],
             "status": "processing",
+            "tool_call_count": 0,
+            "tool_history": [],
         }
 
         yield {"event": "agent_start", "data": {"agent_version": "v1"}}
@@ -88,21 +100,49 @@ class AgentService:
             },
         }
 
-        sources: list[dict[str, Any]] = []
-        retrieved_context = ""
+        # 2. Agent Decision Node (Determine if a tool is needed)
+        decision_update = await agent_decision_node(state)
+        state.update(decision_update)
+        selected_tool = state.get("selected_tool")
 
-        # 2. Retrieval Branch (if required)
-        if needs_retrieval:
+        # 3. Tool Execution (if tool selected)
+        if selected_tool:
+            yield {"event": "tool_start", "data": {"tool": selected_tool}}
+
+            tool_exec_update = await execute_tool_node(state)
+            state.update(tool_exec_update)
+
+            # Check if knowledge search returned sources
+            sources = state.get("sources", [])
+            if sources:
+                yield {"event": "citation", "data": {"sources": sources}}
+
+            if state.get("tool_error"):
+                yield {
+                    "event": "tool_error",
+                    "data": {"tool": selected_tool, "error": state.get("tool_error")},
+                }
+            else:
+                yield {
+                    "event": "tool_complete",
+                    "data": {"tool": selected_tool, "success": True},
+                }
+        elif needs_retrieval:
+            # Fallback legacy retrieval route
             yield {"event": "retrieval_start", "data": {}}
             retrieval_update = await retrieve_knowledge_node(state)
             state.update(retrieval_update)
             sources = state.get("sources", [])
-            retrieved_context = state.get("retrieved_context", "")
-
             yield {"event": "citation", "data": {"sources": sources}}
             yield {"event": "retrieval_complete", "data": {"sources_count": len(sources)}}
 
-        # 3. Generation Node (Streaming tokens)
+        sources = state.get("sources", [])
+        retrieved_context = state.get("retrieved_context", "")
+        tool_history = state.get("tool_history", [])
+        tool_result = state.get("tool_result")
+        tool_error = state.get("tool_error")
+
+        # 4. Generation Node (Streaming tokens)
         yield {"event": "generation_start", "data": {}}
         accumulated_text = ""
         llm = get_llm_provider()
@@ -127,10 +167,48 @@ class AgentService:
                 accumulated_text += token
                 yield {"event": "token", "data": {"text": token}}
 
+        elif tool_history:
+            last_tool = tool_history[-1]["tool"]
+            if last_tool == "knowledge_search":
+                if not retrieved_context.strip():
+                    for word in NO_ANSWER_FOUND.split(" "):
+                        accumulated_text += word + " "
+                        yield {"event": "token", "data": {"text": word + " "}}
+                        await asyncio.sleep(0.015)
+                else:
+                    prompt = format_chat_rag_prompt(
+                        question=query,
+                        context=retrieved_context,
+                        conversation_history=history,
+                    )
+                    token_stream = llm.generate_stream(
+                        prompt=prompt,
+                        system_instruction=RAG_SYSTEM_INSTRUCTION,
+                        temperature=0.1,
+                    )
+                    async for token in token_stream:
+                        accumulated_text += token
+                        yield {"event": "token", "data": {"text": token}}
+            else:
+                prompt = format_tool_answer_prompt(
+                    question=query,
+                    tool_name=last_tool,
+                    tool_arguments=tool_history[-1].get("arguments"),
+                    tool_result=tool_result,
+                    tool_error=tool_error,
+                )
+                token_stream = llm.generate_stream(
+                    prompt=prompt,
+                    system_instruction=TOOL_ANSWER_SYSTEM_INSTRUCTION,
+                    temperature=0.1,
+                )
+                async for token in token_stream:
+                    accumulated_text += token
+                    yield {"event": "token", "data": {"text": token}}
+
         else:
-            # Knowledge question branch
+            # Knowledge question fallback
             if not retrieved_context.strip():
-                # Safe fallback if no relevant context found
                 for word in NO_ANSWER_FOUND.split(" "):
                     accumulated_text += word + " "
                     yield {"event": "token", "data": {"text": word + " "}}
@@ -157,9 +235,10 @@ class AgentService:
             "data": {
                 "agent_version": "v1",
                 "intent": intent,
-                "retrieval_used": needs_retrieval,
+                "retrieval_used": needs_retrieval or bool(sources),
                 "sources_count": len(sources),
                 "final_answer": final_answer,
                 "sources": sources,
+                "tool_history": tool_history,
             },
         }

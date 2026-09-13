@@ -3,15 +3,17 @@ from app.services.agent.state import AgentState
 from app.services.agent.nodes import (
     load_context_node,
     classify_intent_node,
+    agent_decision_node,
+    execute_tool_node,
     retrieve_knowledge_node,
     generate_answer_node,
 )
-from app.services.agent.router import decide_retrieval_route
+from app.services.agent.router import decide_execution_route
 
 
 def create_agent_graph():
-    """Build and compile the deterministic LangGraph enterprise agent workflow.
-    
+    """Build and compile the Phase 9 LangGraph enterprise agent workflow.
+
     Graph topology:
     START
       ↓
@@ -19,33 +21,41 @@ def create_agent_graph():
       ↓
     classify_intent
       ↓
-    [decide_retrieval_route]
-      ├── retrieve_knowledge → generate_answer → END
+    agent_decision
+      ↓
+    [decide_execution_route]
+      ├── execute_tool ───────► generate_answer → END
+      ├── retrieve_knowledge ─► generate_answer → END
       └── generate_answer ─────────────────────→ END
     """
     workflow = StateGraph(AgentState)
 
-    # Add nodes
+    # Add all workflow nodes
     workflow.add_node("load_context", load_context_node)
     workflow.add_node("classify_intent", classify_intent_node)
+    workflow.add_node("agent_decision", agent_decision_node)
+    workflow.add_node("execute_tool", execute_tool_node)
     workflow.add_node("retrieve_knowledge", retrieve_knowledge_node)
     workflow.add_node("generate_answer", generate_answer_node)
 
-    # Add linear start edges
+    # Start edges
     workflow.add_edge(START, "load_context")
     workflow.add_edge("load_context", "classify_intent")
+    workflow.add_edge("classify_intent", "agent_decision")
 
-    # Add conditional branching edge
+    # Conditional branching from agent_decision
     workflow.add_conditional_edges(
-        "classify_intent",
-        decide_retrieval_route,
+        "agent_decision",
+        decide_execution_route,
         {
+            "execute_tool": "execute_tool",
             "retrieve_knowledge": "retrieve_knowledge",
             "generate_answer": "generate_answer",
         },
     )
 
-    # Connect to termination
+    # Reconvergence to generate_answer and END
+    workflow.add_edge("execute_tool", "generate_answer")
     workflow.add_edge("retrieve_knowledge", "generate_answer")
     workflow.add_edge("generate_answer", END)
 

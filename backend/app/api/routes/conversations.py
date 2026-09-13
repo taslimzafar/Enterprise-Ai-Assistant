@@ -145,11 +145,13 @@ async def stream_chat(
     membership: Membership = Depends(require_viewer),
 ):
     """Stream real-time assistant tokens and citations via Server-Sent Events (SSE)."""
+    user_role = membership.role.value if hasattr(membership.role, "value") else str(membership.role)
     generator = chat_service.stream_chat_response(
         conversation_id=conversation_id,
         user_text=payload.message,
         organization_id=org_id,
         user_id=current_user.id,
+        user_role=user_role,
     )
 
     return StreamingResponse(
