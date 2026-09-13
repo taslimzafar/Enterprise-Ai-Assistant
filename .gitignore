@@ -12,3 +12,11 @@ env/
 # Environment variables
 .env
 backend/.env
+
+# Databases & local storage
+*.db
+*.sqlite
+*.sqlite3
+/storage/
+/backend/storage/
+.pytest_cache/

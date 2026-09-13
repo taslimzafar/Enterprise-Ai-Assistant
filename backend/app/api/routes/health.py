@@ -1,5 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, status, HTTPException
+from sqlalchemy import text
 from app.core.config import settings
+from app.db.database import engine
+from app.core.logging import logger
 
 router = APIRouter()
 
@@ -18,9 +21,22 @@ async def health_check():
 async def readiness_check():
     """
     Check if the API is ready to accept traffic.
-    Will be extended later to check DB and external dependencies.
+    Includes a database connection check.
     """
-    # TODO: Add database connection check here
+    db_status = "ok"
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"Database readiness check failed: {e}")
+        db_status = "error"
+        
+    if db_status == "error":
+        # In a real setup, we might return 503 Service Unavailable if DB is down
+        # but returning JSON with error state is also common.
+        pass
+        
     return {
-        "status": "ready"
+        "status": "ready" if db_status == "ok" else "not_ready",
+        "database": db_status
     }

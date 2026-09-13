@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     STORAGE_PATH: str = "./storage"
     VECTOR_DIMENSION: int = 1536 # Dependent on the embedding model
     
+    # Document Ingestion
+    MAX_UPLOAD_SIZE_MB: int = 50
+    CHUNK_SIZE: int = 1000  # characters per chunk
+    CHUNK_OVERLAP: int = 200  # overlap between chunks
+    ALLOWED_DOCUMENT_TYPES: list = ["pdf", "docx", "txt"]
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
