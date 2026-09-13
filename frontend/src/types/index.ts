@@ -24,7 +24,7 @@ export interface Membership {
   created_at: string;
 }
 
-export type DocumentStatus = 'UPLOADED' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
+export type DocumentStatus = 'UPLOADED' | 'PROCESSING' | 'EMBEDDING' | 'PROCESSED' | 'FAILED';
 
 export interface Document {
   id: string;
@@ -36,4 +36,18 @@ export interface Document {
   chunk_count: number;
   created_at: string;
   processed_at: string | null;
+}
+
+export interface RAGSource {
+  document_id: string;
+  chunk_id: string;
+  filename: string;
+  page: number | null;
+  chunk_index: number;
+  score: number;
+}
+
+export interface RAGQueryResponse {
+  answer: string;
+  sources: RAGSource[];
 }

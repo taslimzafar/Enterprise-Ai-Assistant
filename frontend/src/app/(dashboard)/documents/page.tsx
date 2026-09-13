@@ -36,6 +36,11 @@ const STATUS_CONFIG: Record<
     color: "bg-yellow-100 text-yellow-800",
     icon: Loader2,
   },
+  EMBEDDING: {
+    label: "Embedding",
+    color: "bg-purple-100 text-purple-800",
+    icon: Loader2,
+  },
   PROCESSED: {
     label: "Processed",
     color: "bg-green-100 text-green-800",

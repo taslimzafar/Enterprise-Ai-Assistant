@@ -1,6 +1,8 @@
 from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Text, Index
 from sqlalchemy.sql import func
+from pgvector.sqlalchemy import Vector
 from app.db.database import Base
+from app.core.config import settings
 import uuid
 
 
@@ -14,6 +16,7 @@ class DocumentChunk(Base):
     content = Column(Text, nullable=False)
     char_count = Column(Integer, nullable=False)
     page_number = Column(Integer, nullable=True)
+    embedding = Column(Vector(settings.VECTOR_DIMENSION), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (

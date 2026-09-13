@@ -78,8 +78,24 @@ class DocumentProcessor:
             if not chunks:
                 raise ValueError("Chunking produced no chunks")
 
-            # 5. Store chunks in DB
-            for chunk in chunks:
+            # 5. Transition to EMBEDDING state
+            doc.status = DocumentStatus.EMBEDDING
+            await db.commit()
+
+            # 6. Generate vector embeddings via EmbeddingProvider
+            logger.info(f"Generating embeddings for doc_id={doc.id}, count={len(chunks)}")
+            from app.services.embeddings import get_embedding_provider
+            embedding_provider = get_embedding_provider()
+            chunk_texts = [c.content for c in chunks]
+            embeddings = await embedding_provider.embed_batch(chunk_texts)
+
+            if len(embeddings) != len(chunks):
+                raise ValueError(
+                    f"Embedding count mismatch: expected {len(chunks)}, got {len(embeddings)}"
+                )
+
+            # 7. Store chunks with embeddings in DB
+            for chunk, vec in zip(chunks, embeddings):
                 db_chunk = DocumentChunk(
                     document_id=doc.id,
                     organization_id=doc.organization_id,
@@ -87,10 +103,11 @@ class DocumentProcessor:
                     content=chunk.content,
                     char_count=chunk.char_count,
                     page_number=chunk.page_number,
+                    embedding=vec,
                 )
                 db.add(db_chunk)
 
-            # 6. Update document status
+            # 8. Update document status to PROCESSED
             doc.status = DocumentStatus.PROCESSED
             doc.chunk_count = len(chunks)
             doc.processed_at = datetime.now(timezone.utc)
@@ -108,7 +125,13 @@ class DocumentProcessor:
             doc = result.scalar_one_or_none()
             if doc:
                 doc.status = DocumentStatus.FAILED
-                doc.processing_error = str(e)[:500]  # Truncate for safety
+                # Sanitize error message to avoid leaking secrets
+                raw_err = str(e)
+                if "API_KEY" in raw_err or "secret" in raw_err.lower() or "key" in raw_err.lower():
+                    clean_err = "Embedding/Processing provider configuration or authentication error."
+                else:
+                    clean_err = raw_err[:300]
+                doc.processing_error = clean_err
                 await db.commit()
 
             logger.error(

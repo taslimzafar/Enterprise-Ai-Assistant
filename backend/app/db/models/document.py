@@ -8,6 +8,7 @@ import enum
 class DocumentStatus(str, enum.Enum):
     UPLOADED = "UPLOADED"
     PROCESSING = "PROCESSING"
+    EMBEDDING = "EMBEDDING"
     PROCESSED = "PROCESSED"
     FAILED = "FAILED"
 
