@@ -517,6 +517,30 @@ async def test_cross_tenant_org_id_tampering_blocked(async_client: AsyncClient):
     assert upload_tamper_res.status_code == 403
     assert "Not a member of this organization" in upload_tamper_res.json()["detail"]
 
+    # User A tries to get doc_b_id metadata passing org_id_b with token_a
+    get_tamper_res = await async_client.get(
+        f"{settings.API_V1_STR}/documents/{doc_b_id}?org_id={org_id_b}",
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert get_tamper_res.status_code == 403
+    assert "Not a member of this organization" in get_tamper_res.json()["detail"]
+
+    # User A tries to get doc_b_id status passing org_id_b with token_a
+    status_tamper_res = await async_client.get(
+        f"{settings.API_V1_STR}/documents/{doc_b_id}/status?org_id={org_id_b}",
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert status_tamper_res.status_code == 403
+    assert "Not a member of this organization" in status_tamper_res.json()["detail"]
+
+    # User A tries to get doc_b_id using their own org_id_a (tenant separation) -> 404
+    get_cross_res = await async_client.get(
+        f"{settings.API_V1_STR}/documents/{doc_b_id}?org_id={org_id_a}",
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert get_cross_res.status_code == 404
+    assert "Document not found" in get_cross_res.json()["detail"]
+
     # User A tries to delete doc_b_id passing org_id_b with token_a
     delete_tamper_res = await async_client.delete(
         f"{settings.API_V1_STR}/documents/{doc_b_id}?org_id={org_id_b}",
