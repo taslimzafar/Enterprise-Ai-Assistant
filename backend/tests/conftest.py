@@ -83,6 +83,24 @@ class TestLLMProvider(LLMProvider):
         system_instruction: str | None = None,
         temperature: float = 0.2,
     ) -> str:
+        # 1. Intent classifier mock
+        if system_instruction and "intent classification" in system_instruction.lower():
+            p_lower = prompt.lower()
+            if "hello" in p_lower or "greeting" in p_lower or "who are you" in p_lower:
+                return '{"intent": "conversational"}'
+            if "hack" in p_lower or "exploit" in p_lower or "harmful" in p_lower:
+                return '{"intent": "unsupported"}'
+            return '{"intent": "knowledge_question"}'
+
+        # 2. Conversational persona mock
+        if system_instruction and "conversational" in system_instruction.lower():
+            return "Hello! I am your Enterprise AI Assistant. How can I help you today with company documentation?"
+
+        # 3. Unsupported query persona mock
+        if system_instruction and "outside the scope" in system_instruction.lower():
+            return "I am designed only to assist with enterprise documentation, workplace policies, and organizational inquiries."
+
+        # 4. RAG and general generation mock
         if "refund" in prompt.lower():
             return "Our refund policy allows full refunds within 30 days of purchase [Source: test_verify.txt]."
         if "unrelated" in prompt.lower() or "secret" in prompt.lower():

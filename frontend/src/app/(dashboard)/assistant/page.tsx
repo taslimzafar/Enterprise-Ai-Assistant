@@ -40,6 +40,7 @@ export default function AssistantChatPage() {
   const [editTitleText, setEditTitleText] = useState('');
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [agentStatus, setAgentStatus] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -261,6 +262,7 @@ export default function AssistantChatPage() {
 
     setMessages((prev) => [...prev, tempUserMsg, tempAssistantMsg]);
     setIsStreaming(true);
+    setAgentStatus('Understanding query...');
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -324,7 +326,16 @@ export default function AssistantChatPage() {
                     )
                   );
                 }
+              } else if (currentEvent === 'agent_intent') {
+                if (parsed.intent === 'knowledge_question') {
+                  setAgentStatus('Searching enterprise documents...');
+                } else if (parsed.intent === 'conversational') {
+                  setAgentStatus('Thinking...');
+                } else if (parsed.intent === 'unsupported') {
+                  setAgentStatus('Evaluating request...');
+                }
               } else if (currentEvent === 'token') {
+                setAgentStatus(null);
                 if (parsed.text) {
                   accumulatedText += parsed.text;
                   setMessages((prev) => {
@@ -353,6 +364,7 @@ export default function AssistantChatPage() {
                   });
                 }
               } else if (currentEvent === 'message_complete') {
+                setAgentStatus(null);
                 setMessages((prev) => {
                   const last = prev[prev.length - 1];
                   if (last && last.role === 'assistant') {
@@ -369,6 +381,7 @@ export default function AssistantChatPage() {
                   return prev;
                 });
               } else if (currentEvent === 'error') {
+                setAgentStatus(null);
                 setError(parsed.error || 'Generation error occurred.');
               }
             } catch (jsonErr) {
@@ -654,12 +667,19 @@ export default function AssistantChatPage() {
                     }`}
                   >
                     {/* Message Content */}
-                    <div className="whitespace-pre-wrap font-sans">
-                      {msg.content}
-                      {msg.status === 'streaming' && (
-                        <span className="inline-block w-1.5 h-3.5 bg-indigo-500 ml-1 animate-pulse align-middle" />
-                      )}
-                    </div>
+                    {msg.status === 'streaming' && !msg.content && agentStatus ? (
+                      <div className="flex items-center gap-2 text-slate-500 py-1 font-sans">
+                        <Sparkles className="h-3.5 w-3.5 text-indigo-500 animate-spin" />
+                        <span className="animate-pulse text-indigo-700 font-medium">{agentStatus}</span>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap font-sans">
+                        {msg.content}
+                        {msg.status === 'streaming' && (
+                          <span className="inline-block w-1.5 h-3.5 bg-indigo-500 ml-1 animate-pulse align-middle" />
+                        )}
+                      </div>
+                    )}
 
                     {/* Citations / Sources for Assistant Responses */}
                     {!isUser && sources.length > 0 && (

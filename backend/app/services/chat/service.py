@@ -199,66 +199,52 @@ class ChatService:
             # 2. Emit start event
             yield f"event: message_start\ndata: {json.dumps({'message_id': assistant_msg_id, 'conversation_id': conversation_id, 'title': current_title})}\n\n"
 
-            # 3. Retrieve relevant chunks from Phase 6 knowledge base
-            async with db_module.async_session_maker() as session:
-                k = getattr(settings, "RAG_TOP_K", 5)
-                retrieved_chunks = await self.retriever.hybrid_search(
-                    query=cleaned_query,
-                    organization_id=organization_id,
-                    top_k=k,
-                    db=session,
-                )
+            # 3. Delegate execution to LangGraph AgentService
+            from app.services.agent import agent_service
 
-            threshold = getattr(settings, "RAG_SIMILARITY_THRESHOLD", 0.3)
-            relevant_chunks = [c for c in retrieved_chunks if c.similarity_score >= threshold]
-
-            # 4. Fallback if no relevant knowledge found
-            if not relevant_chunks:
-                logger.info(f"Stream RAG query yielded no chunks above {threshold} for org_id={organization_id}")
-                yield f"event: citation\ndata: {json.dumps({'sources': []})}\n\n"
-                
-                # Stream fallback text
-                for word in NO_ANSWER_FOUND.split(" "):
-                    accumulated_text += word + " "
-                    yield f"event: token\ndata: {json.dumps({'text': word + ' '})}\n\n"
-                    await asyncio.sleep(0.02)
-
-                # Finalize message in DB
-                async with db_module.async_session_maker() as session:
-                    res = await session.execute(select(Message).filter(Message.id == assistant_msg_id))
-                    msg = res.scalar_one_or_none()
-                    if msg:
-                        msg.content = NO_ANSWER_FOUND
-                        msg.status = MessageStatus.COMPLETED
-                        msg.msg_metadata = {"sources": []}
-                        await session.commit()
-
-                yield f"event: message_complete\ndata: {json.dumps({'message_id': assistant_msg_id, 'status': 'completed'})}\n\n"
-                return
-
-            # 5. Build context & emit citations
-            context_str, sources = self.context_builder.build_context(relevant_chunks)
-            yield f"event: citation\ndata: {json.dumps({'sources': sources})}\n\n"
-
-            # 6. Stream tokens from LLM Provider
-            prompt = format_chat_rag_prompt(
-                question=cleaned_query,
-                context=context_str,
+            agent_stream = agent_service.stream_chat(
+                organization_id=organization_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                message=cleaned_query,
                 conversation_history=formatted_history,
             )
-            llm = get_llm_provider()
 
-            token_stream = llm.generate_stream(
-                prompt=prompt,
-                system_instruction=RAG_SYSTEM_INSTRUCTION,
-                temperature=0.1,
-            )
+            agent_meta = {
+                "agent": {
+                    "version": "v1",
+                    "intent": "knowledge_question",
+                    "retrieval_used": True,
+                    "sources_count": 0,
+                },
+                "sources": [],
+            }
 
-            async for token in token_stream:
-                accumulated_text += token
-                yield f"event: token\ndata: {json.dumps({'text': token})}\n\n"
+            async for item in agent_stream:
+                ev_type = item.get("event")
+                ev_data = item.get("data", {})
 
-            # 7. Finalize assistant message in DB
+                if ev_type == "agent_intent":
+                    agent_meta["agent"]["intent"] = ev_data.get("intent", "knowledge_question")
+                    agent_meta["agent"]["retrieval_used"] = ev_data.get("needs_retrieval", False)
+                    yield f"event: agent_intent\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "citation":
+                    sources = ev_data.get("sources", [])
+                    agent_meta["sources"] = sources
+                    agent_meta["agent"]["sources_count"] = len(sources)
+                    yield f"event: citation\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "token":
+                    token_text = ev_data.get("text", "")
+                    accumulated_text += token_text
+                    yield f"event: token\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "agent_complete":
+                    agent_meta["agent"]["sources_count"] = ev_data.get("sources_count", len(sources))
+                    agent_meta["sources"] = ev_data.get("sources", sources)
+
+            # 4. Finalize assistant message in DB with agent execution metadata
             final_content = accumulated_text.strip() or NO_ANSWER_FOUND
             async with db_module.async_session_maker() as session:
                 res = await session.execute(select(Message).filter(Message.id == assistant_msg_id))
@@ -266,7 +252,7 @@ class ChatService:
                 if msg:
                     msg.content = final_content
                     msg.status = MessageStatus.COMPLETED
-                    msg.msg_metadata = {"sources": sources}
+                    msg.msg_metadata = agent_meta
                     await session.commit()
 
             yield f"event: message_complete\ndata: {json.dumps({'message_id': assistant_msg_id, 'status': 'completed'})}\n\n"
