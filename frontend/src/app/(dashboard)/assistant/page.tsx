@@ -336,10 +336,10 @@ export default function AssistantChatPage() {
                 }
               } else if (currentEvent === 'tool_start') {
                 if (parsed.tool === 'knowledge_search') {
-                  setAgentStatus('Searching enterprise documents...');
+                  setAgentStatus('Searching knowledge...');
                 } else if (parsed.tool === 'calculator') {
                   setAgentStatus('Calculating...');
-                } else if (parsed.tool === 'database_query') {
+                } else if (parsed.tool === 'database_query' || parsed.tool === 'organization_stats') {
                   setAgentStatus('Checking organization data...');
                 } else {
                   setAgentStatus('Running tool...');

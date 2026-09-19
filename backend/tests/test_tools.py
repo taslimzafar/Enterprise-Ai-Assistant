@@ -17,12 +17,14 @@ from app.services.tools import (
     CalculatorTool,
     KnowledgeSearchTool,
     DatabaseQueryTool,
+    OrganizationStatsTool,
     ToolPermissionChecker,
     ToolPermissionError,
 )
 from app.services.tools.calculator import CalculatorInput
 from app.services.tools.knowledge_search import KnowledgeSearchInput
 from app.services.tools.database_query import DatabaseQueryInput
+from app.services.tools.organization_stats import OrganizationStatsInput
 from app.services.agent import agent_service
 
 
@@ -67,6 +69,7 @@ def test_tool_registry_registration_and_lookup():
     assert registry.get("calculator") is not None
     assert registry.get("knowledge_search") is not None
     assert registry.get("database_query") is not None
+    assert registry.get("organization_stats") is not None
     assert registry.get("non_existent_tool") is None
 
     # Role-based availability
@@ -77,14 +80,17 @@ def test_tool_registry_registration_and_lookup():
     assert "calculator" in viewer_tools
     assert "knowledge_search" not in viewer_tools
     assert "database_query" not in viewer_tools
+    assert "organization_stats" not in viewer_tools
 
     assert "calculator" in member_tools
     assert "knowledge_search" in member_tools
     assert "database_query" not in member_tools
+    assert "organization_stats" not in member_tools
 
     assert "calculator" in manager_tools
     assert "knowledge_search" in manager_tools
     assert "database_query" in manager_tools
+    assert "organization_stats" in manager_tools
 
 
 # ---------------------------------------------------------------------------
@@ -363,3 +369,52 @@ async def test_agent_streaming_tool_events(tools_tenant: dict):
     assert "generation_start" in events
     assert "token" in events
     assert "agent_complete" in events
+
+
+@pytest.mark.asyncio
+async def test_organization_stats_tool_operations_and_security(tools_tenant: dict):
+    """Verify OrganizationStatsTool operations, RBAC, tenant isolation, and mutation rejection."""
+    org_id = tools_tenant["org_id"]
+    user_id = tools_tenant["user_id"]
+
+    stats_tool = OrganizationStatsTool()
+    ctx = ToolContext(organization_id=org_id, user_id=user_id, user_role="MANAGER")
+
+    # 1. Execute organization_statistics
+    res_stats = await stats_tool.execute(
+        OrganizationStatsInput(operation="organization_statistics"),
+        ctx,
+    )
+    assert res_stats.success is True
+    assert "total_documents" in res_stats.data["result"]
+    assert "total_conversations" in res_stats.data["result"]
+    assert res_stats.data["organization_id"] == org_id
+
+    # 2. Cross-tenant isolation check
+    other_ctx = ToolContext(organization_id="other-isolated-org", user_id=user_id, user_role="MANAGER")
+    other_res = await stats_tool.execute(
+        OrganizationStatsInput(operation="organization_statistics"),
+        other_ctx,
+    )
+    assert other_res.success is True
+    assert other_res.data["result"]["total_documents"] == 0
+    assert other_res.data["result"]["total_conversations"] == 0
+
+    # 3. Mutation rejection
+    mut_res = await stats_tool.execute(
+        OrganizationStatsInput(operation="organization_statistics", raw_sql="DROP TABLE documents;"),
+        ctx,
+    )
+    assert mut_res.success is False
+    assert "forbidden" in mut_res.error.lower()
+
+    # 4. RBAC check via registry
+    viewer_ctx = ToolContext(organization_id=org_id, user_id=user_id, user_role="VIEWER")
+    viewer_res = await tool_registry.execute_tool(
+        tool_name="organization_stats",
+        arguments={"operation": "organization_statistics"},
+        context=viewer_ctx,
+    )
+    assert viewer_res.success is False
+    assert "not authorized" in viewer_res.error.lower()
+

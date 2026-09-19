@@ -9,6 +9,7 @@ from app.services.tools.permissions import ToolPermissionChecker, ToolPermission
 from app.services.tools.calculator import CalculatorTool
 from app.services.tools.knowledge_search import KnowledgeSearchTool
 from app.services.tools.database_query import DatabaseQueryTool
+from app.services.tools.organization_stats import OrganizationStatsTool
 
 
 class ToolRegistry:
@@ -20,6 +21,7 @@ class ToolRegistry:
         self.register(CalculatorTool())
         self.register(KnowledgeSearchTool())
         self.register(DatabaseQueryTool())
+        self.register(OrganizationStatsTool())
 
     def register(self, tool: BaseTool) -> None:
         """Register a strongly typed tool in the system."""

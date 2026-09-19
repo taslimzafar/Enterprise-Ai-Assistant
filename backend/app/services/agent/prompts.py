@@ -36,7 +36,7 @@ Analyze the user request and available tools, and decide whether a tool call is 
 RULES:
 1. Only select from the AVAILABLE TOOLS provided.
 2. If the user asks a calculation or math question, call "calculator".
-3. If the user asks about document statistics, total conversations, or organization counts, call "database_query".
+3. If the user asks about document statistics, total conversations, or organization counts, call "organization_stats" (or "database_query").
 4. If the user asks a workplace knowledge question, call "knowledge_search".
 5. If no tool is needed or information is already sufficient, choose "direct_answer".
 6. Never make up arguments. Follow the parameters schema exactly.
