@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL + pgvector
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: enterprise_ai_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-enterprise_ai}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - enterprise_prod_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2. Redis Cache & Rate Limiter
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: enterprise_ai_redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - enterprise_prod_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 3. FastAPI Backend
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: enterprise_ai_backend
+    restart: always
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-enterprise_ai}
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_ENABLED=true
+      - JWT_SECRET=${JWT_SECRET:-generate_a_secure_jwt_secret_in_production}
+      - BACKEND_CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000","https://app.yourdomain.com"]
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - enterprise_prod_net
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ----------------------------------------------------------------------------
+  # 4. Next.js Frontend
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: enterprise_ai_frontend
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - enterprise_prod_net
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_prod_data:
+    driver: local
+  redis_prod_data:
+    driver: local
+  backend_storage:
+    driver: local
+
+networks:
+  enterprise_prod_net:
+    driver: bridge

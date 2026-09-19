@@ -50,9 +50,16 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: Optional[str] = None
     
     # Storage & Vectors
+    STORAGE_BACKEND: str = "local"  # "local" or "s3"
     STORAGE_PATH: str = "./storage"
+    S3_BUCKET_NAME: Optional[str] = "enterprise-ai-documents"
+    S3_ENDPOINT_URL: Optional[str] = None
+    S3_REGION_NAME: Optional[str] = "us-east-1"
+    S3_ACCESS_KEY_ID: Optional[str] = None
+    S3_SECRET_ACCESS_KEY: Optional[str] = None
     VECTOR_DIMENSION: int = 768  # 768 for Gemini text-embedding-004, 1536 for OpenAI
     EMBEDDING_BATCH_SIZE: int = 20
+    REDIS_ENABLED: bool = False
 
     # RAG & Retrieval Settings
     RAG_TOP_K: int = 5
