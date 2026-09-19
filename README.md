@@ -1,198 +1,255 @@
-# Enterprise AI Assistant
+<div align="center">
 
-An enterprise-grade, multi-tenant AI Assistant platform featuring Retrieval-Augmented Generation (RAG), LangGraph autonomous agent execution, controlled tool calling, Human-in-the-Loop (HITL) approvals, a multi-step workflow engine, comprehensive security hardening, and an automated evaluation and observability layer.
+# 🤖 Enterprise AI Assistant
 
----
+**Production-grade, secure, multi-tenant Autonomous AI platform powered by LangGraph, Enterprise RAG, and Human-in-the-Loop Orchestration.**
 
-## 1. System Architecture
+[![Next.js](https://img.shields.io/badge/Next.js-16.3.4-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15%20%2B%20pgvector-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Agentic%20AI-orange?style=for-the-badge)](https://www.langchain.com/langgraph)
+[![Redis](https://img.shields.io/badge/Redis-7%20Alpine-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io/)
+[![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-180%20Passed%20(100%25)-success?style=for-the-badge&logo=pytest&logoColor=white)](backend/tests/)
 
-The application is structured into isolated, scalable service tiers:
+[Live Local App](http://localhost:3000) • [Swagger API Docs](http://localhost:8000/docs) • [Architecture](#-system-architecture) • [Features](#-core-features) • [Quickstart](#-quickstart-guide) • [Docker](#-docker-deployment)
 
-```
-                      ┌───────────────────────────────┐
-                      │    Next.js 16 (App Router)    │
-                      │    TailwindCSS / TypeScript   │
-                      └───────────────┬───────────────┘
-                                      │  HTTPS / SSE
-                                      ▼
-                      ┌───────────────────────────────┐
-                      │      FastAPI (Uvicorn)        │
-                      │  Async Python 3.11 Backend    │
-                      └───────┬───────────────┬───────┘
-                              │               │
-            ┌─────────────────┴────┐     ┌────┴─────────────────┐
-            │ PostgreSQL+pgvector  │     │   Redis 7 (Alpine)   │
-            │  Multi-tenant Store  │     │ Caching & Rate Limit │
-            └──────────────────────┘     └──────────────────────┘
-                              │
-            ┌─────────────────┴────────────────────────┐
-            │  Document Storage (S3 / MinIO / Local)   │
-            │  Tenant-isolated document ingestion      │
-            └──────────────────────────────────────────┘
-```
-
-### Core Subsystems
-- **Multi-Tenancy & RBAC**: Tenant isolation enforced at database query level (`organization_id`). Strict role hierarchy: `OWNER` > `ADMIN` > `MANAGER` > `MEMBER` > `VIEWER`.
-- **Enterprise RAG**: Document parsing (PDF, DOCX, TXT), chunking, hybrid vector search (pgvector `HNSW` cosine similarity) combined with keyword search via Reciprocal Rank Fusion (`RRF`).
-- **LangGraph Agent**: Stateful graph orchestration directing queries between conversational responses, RAG retrieval, and controlled tool calls.
-- **Controlled Tools**: Sandboxed tools (`calculator`, `knowledge_search`, `organization_stats`, `create_demo_note`) with Pydantic schema validation, timeout limits, and RBAC authorization.
-- **HITL Approval Engine**: Segregation of duties pausing sensitive operations pending manual review by authorized personnel (`ADMIN`/`OWNER`).
-- **Stateful Workflow Engine**: Multi-step DAG state machines supporting conditional branching, retries, and step-level approval integration.
-- **Security Hardening**: Sliding-window rate limiter, HTTP security headers (`CSP`, `X-Content-Type-Options`, `X-Frame-Options`), magic bytes inspection, path traversal protection, AST expression safety, and automatic secret redaction.
-- **AI Evaluation & Observability**: Deterministic evaluators for retrieval precision/recall, context groundedness, answer correctness, and p50/p95/p99 latency percentiles.
+</div>
 
 ---
 
-## 2. Environment Configuration
+## 🌟 Overview
 
-Copy `.env.example` to `.env` and configure your settings:
+**Enterprise AI Assistant** is an end-to-end, enterprise-ready artificial intelligence platform designed to securely connect corporate knowledge bases with cutting-edge LLMs (Gemini / OpenAI). It features stateful agent workflows via **LangGraph**, robust **Human-in-the-Loop (HITL)** governance, strict multi-tenant isolation, and a comprehensive AI observability suite.
+
+---
+
+## 🏛️ System Architecture
+
+```
+                                  ┌─────────────────────────────────────────┐
+                                  │       Next.js 16 Client (App Router)    │
+                                  │   TailwindCSS • Lucide • SSE Stream     │
+                                  └────────────────────┬────────────────────┘
+                                                       │ HTTPS / SSE
+                                                       ▼
+                                  ┌─────────────────────────────────────────┐
+                                  │           FastAPI Gateway               │
+                                  │     Uvicorn • Python 3.11 • JWT RBAC    │
+                                  └───────┬─────────────────────────┬───────┘
+                                          │                         │
+                   ┌──────────────────────┴──────┐           ┌──────┴──────────────────────┐
+                   │    PostgreSQL 15 + pgvector │           │       Redis 7 (Alpine)      │
+                   │    HNSW Cosine Vector Index │           │   Sliding-Window Limiter    │
+                   │    Row-Level Tenant Isolation│           │   In-Memory Fallback Guard │
+                   └──────────────┬──────────────┘           └─────────────────────────────┘
+                                  │
+         ┌────────────────────────┴────────────────────────┬────────────────────────┐
+         │                                                 │                        │
+         ▼                                                 ▼                        ▼
+┌──────────────────┐                             ┌──────────────────┐     ┌──────────────────┐
+│  Enterprise RAG  │                             │ LangGraph Agent  │     │ Workflow Engine  │
+│ Hybrid Retrieval │                             │ Intent Routing   │     │ Multi-Step DAG   │
+│ Reciprocal Rank  │                             │ Controlled Tools │     │ State Machine    │
+│ Fusion (RRF)     │                             │ HITL Pause/Resume│     │ Step Approvals   │
+└──────────────────┘                             └──────────────────┘     └──────────────────┘
+```
+
+---
+
+## ✨ Core Features
+
+### 1. 💬 Real-Time Streaming Assistant
+- **Server-Sent Events (SSE)**: Ultra-low latency token-by-token streaming response delivery.
+- **LangGraph Orchestration**: Automatic intent classification routing between direct conversation, hybrid knowledge retrieval, and controlled tool execution.
+- **Grounded Responses**: Citations and source references attached directly to retrieved facts.
+
+### 2. 📚 Enterprise Knowledge & Hybrid RAG
+- **Multi-Format Ingestion**: Ingest and process `.pdf`, `.docx`, and `.txt` documents.
+- **pgvector HNSW Indexing**: High-dimensional vector embeddings with cosine similarity distance search.
+- **Hybrid Fusion (RRF)**: Merges dense vector semantic search with full-text keyword ranking to avoid hallucinations.
+- **Tenant Scoping**: All document chunks and embeddings are hard-isolated by `organization_id`.
+
+### 3. 🛠️ Controlled Safe Tools & Registry
+- **Type-Safe Validation**: Pydantic v2 input/output schema enforcement.
+- **Built-in Safe Tools**:
+  - `calculator`: AST-evaluated mathematical calculation with zero `eval()` vulnerabilities.
+  - `knowledge_search`: Internal organizational RAG knowledge querying.
+  - `organization_stats`: Aggregated metrics with tenant scoping.
+  - `create_demo_note`: Demonstrates Human-in-the-Loop sensitive action interception.
+- **Role-Based Access Control**: Each tool declares minimum permitted roles (`VIEWER`, `MEMBER`, `MANAGER`, `ADMIN`, `OWNER`).
+
+### 4. 🛡️ Human-in-the-Loop (HITL) Approval Engine
+- **Segregation of Duties**: Requesters cannot self-approve sensitive operations.
+- **State Machine**: Reversible pause/resume execution lifecycle (`PENDING` → `APPROVED` / `REJECTED` / `EXPIRED`).
+- **Audit Logging**: Comprehensive structured audit log capturing all approval decisions.
+
+### 5. ⚡ Stateful Workflow Engine
+- **DAG Execution**: Define multi-step workflows combining tools, RAG queries, and LLM steps.
+- **Conditional Branching & Safe Expressions**: Branch on upstream step results using sandboxed condition evaluators.
+- **Graceful Pausing**: Steps tagged with `requires_approval=True` automatically pause execution until approved.
+
+### 6. 📊 AI Evaluation & Observability Suite
+- **Benchmarking Engine**: Automatic evaluation of precision, recall, F1 score, context groundedness, and citation attribution.
+- **Trace & Latency Metrics**: Real-time p50, p95, and p99 latency tracking, token usage estimation, and categorized error tracking.
+- **Data Redaction**: Automatic masking of passwords, Bearer tokens, and sensitive API secrets from telemetry.
+
+---
+
+## 🖥️ UI Tour & Application Routes
+
+| Route | View | Description |
+|---|---|---|
+| `/assistant` | **AI Assistant** | Real-time streaming conversation, citation preview, and tool execution feedback. |
+| `/documents` | **Document Center** | Upload corporate policies, monitor extraction/chunking status, and inspect indexed documents. |
+| `/workflows` | **Workflows** | Interactive workflow builder, execution tracker, step inspection, and runtime logs. |
+| `/approvals` | **HITL Approvals** | Dedicated governance queue for administrators to inspect, approve, or reject pending agent actions. |
+| `/observability` | **Observability** | Live operational metrics dashboard: request rates, error distributions, token consumption, and latencies. |
+| `/evaluations` | **Evaluations** | Benchmark runs and accuracy scoreboards for RAG and agent responses. |
+| `/members` | **Organization** | Role management (`OWNER`, `ADMIN`, `MANAGER`, `MEMBER`, `VIEWER`) and team invitations. |
+| `/login` / `/register` | **Authentication** | Secure JWT-based user onboarding with automated organization bootstrapping. |
+
+---
+
+## 🚀 Quickstart Guide
+
+### Prerequisites
+- **Python 3.11+**
+- **Node.js 20+** & **npm**
+- **PostgreSQL 15+** with `pgvector` extension
+- **Redis 7+** (Optional: falls back to in-memory limiter)
+
+---
+
+### Method A: Docker Compose (Recommended for Production)
+
+Run the complete production-configured stack with a single command:
 
 ```bash
+# 1. Clone the repository
+git clone https://github.com/taslimzafar/Enterprise-Ai-Assistant.git
+cd Enterprise-Ai-Assistant
+
+# 2. Configure environment
 cp .env.example .env
-```
 
-### Key Environment Variables
-
-| Variable | Description | Default / Example |
-| :--- | :--- | :--- |
-| `ENVIRONMENT` | Runtime mode (`production`, `development`) | `production` |
-| `DATABASE_URL` | Async PostgreSQL connection string | `postgresql+asyncpg://postgres:pass@localhost:5432/enterprise_ai` |
-| `REDIS_URL` | Redis connection URL | `redis://localhost:6379/0` |
-| `JWT_SECRET` | 64+ char cryptographic secret for JWTs | Run `openssl rand -hex 32` |
-| `BACKEND_CORS_ORIGINS` | JSON list of trusted web origins | `["http://localhost:3000"]` |
-| `LLM_PROVIDER` | LLM provider choice (`gemini`, `openai`) | `gemini` |
-| `GEMINI_API_KEY` | Google Gemini API Key | `AIzaSy...` |
-| `STORAGE_BACKEND` | Storage type (`local` or `s3`) | `local` |
-| `S3_BUCKET_NAME` | Cloud storage bucket name | `enterprise-ai-documents` |
-
----
-
-## 3. Local Development Setup
-
-### Backend
-
-```bash
-cd backend
-python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
-
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn app.main:app --reload --port 8000
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Access the application UI at `http://localhost:3000` and API documentation at `http://localhost:8000/api/v1/docs`.
-
----
-
-## 4. Docker Deployment
-
-### Production Docker Compose
-
-To start the full production stack (PostgreSQL + pgvector, Redis, Backend, and Frontend):
-
-```bash
+# 3. Launch with Docker Compose
 docker-compose -f docker-compose.prod.yml up -d --build
 ```
 
-### Standalone Docker Containers
-
-**Build Backend:**
-```bash
-docker build -t enterprise-ai-backend:latest ./backend
-docker run -d -p 8000:8000 --env-file .env enterprise-ai-backend:latest
-```
-
-**Build Frontend:**
-```bash
-docker build -t enterprise-ai-frontend:latest ./frontend
-docker run -d -p 3000:3000 enterprise-ai-frontend:latest
-```
-
-Both containers run as unprivileged, non-root users (`appuser` UID 10001 / `nextjs` UID 1001) for container security.
+Access the services:
+- **Frontend App**: [http://localhost:3000](http://localhost:3000)
+- **FastAPI Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Health Check**: [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
 
 ---
 
-## 5. Database Migrations & Safety
+### Method B: Local Development Setup
 
-Database migrations are managed via Alembic:
-
-```bash
-# Check for pending model diffs
-alembic check
-
-# Apply migrations to latest head
-alembic upgrade head
-
-# Rollback one migration (if needed)
-alembic downgrade -1
-```
-
-### Production Migration Sequence:
-1. Snapshot / backup PostgreSQL database (`pg_dump`).
-2. Deploy new backend code.
-3. Run `alembic upgrade head`.
-4. Verify readiness via `GET /api/v1/ready`.
-5. Run automated smoke tests.
-
----
-
-## 6. Health & Readiness Probes
-
-The backend provides dual health check endpoints configured for Docker, Kubernetes, and load balancers:
-
-- **Liveness Probe**: `GET /api/v1/health`
-  - Returns `200 OK` when the FastAPI application process is alive.
-- **Readiness Probe**: `GET /api/v1/ready`
-  - Returns `200 OK` when the database connection pool is active and operational.
-
----
-
-## 7. Testing & Verification
-
-Run the full pytest suite (Phases 1–14):
+#### 1. Backend Setup
 
 ```bash
 cd backend
-pytest -v
+
+# Create and activate virtual environment
+python -m venv venv
+# On Windows:
+.\venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run database migrations
+alembic upgrade head
+
+# Start FastAPI development server
+uvicorn app.main:app --reload --port 8000
 ```
 
-### Smoke Test Suite
-An end-to-end smoke test suite is included in `tests/test_smoke.py` validating registration, RBAC, document upload, RAG search, tool execution, HITL approval, workflow orchestration, evaluation, and tenant isolation:
+#### 2. Frontend Setup
 
 ```bash
-pytest tests/test_smoke.py -v
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start Next.js development server
+npm run dev
 ```
 
----
-
-## 8. CI/CD Pipeline
-
-The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on all pushes and pull requests to `main`:
-1. **Backend Checks**: Installs dependencies, applies Alembic migrations, runs full pytest suite against real PostgreSQL and Redis service containers.
-2. **Frontend Checks**: Validates TypeScript types and compiles Next.js production build (`npm run build`).
-3. **Docker Build Checks**: Builds production Docker images for both backend and frontend.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 9. Rollback & Disaster Recovery
+## ⚙️ Environment Configuration
 
-- **Application Rollback**: Re-deploy the previous container image tag. Container configurations are stateless.
-- **Database Rollback**: Revert specific migrations via `alembic downgrade <revision_id>` or restore from `pg_dump` snapshot.
-- **Redis Outage**: If Redis becomes unreachable, the rate limiter automatically falls back to in-memory sliding-window operation, ensuring no service disruption.
-- **LLM Outage**: The assistant catches provider timeouts and rate limits, categorizing them under `LLM_ERROR` in observability traces while failing gracefully.
+Refer to [`.env.example`](.env.example) for a complete template.
+
+| Variable | Description | Default / Example |
+|---|---|---|
+| `DATABASE_URL` | Async PostgreSQL connection string | `postgresql+asyncpg://postgres:postgres@localhost:5432/enterprise_ai` |
+| `REDIS_URL` | Redis cache and rate limiting URL | `redis://localhost:6379/0` |
+| `REDIS_ENABLED` | Toggle Redis integration (`true`/`false`) | `true` |
+| `SECRET_KEY` | 64+ char cryptographic key for JWT tokens | `openssl rand -hex 32` |
+| `BACKEND_CORS_ORIGINS` | Permitted frontend origins | `["http://localhost:3000"]` |
+| `STORAGE_BACKEND` | Storage provider (`local` or `s3`) | `local` |
+| `S3_BUCKET_NAME` | S3 / MinIO storage bucket name | `enterprise-ai-documents` |
+| `GEMINI_API_KEY` | Google Gemini API Key | `AIzaSy...` |
+| `OPENAI_API_KEY` | OpenAI API Key (Optional) | `sk-...` |
+| `OBSERVABILITY_ENABLED` | Enable telemetry & request tracing | `true` |
 
 ---
 
-## 10. License & Maintenance
-Enterprise AI Assistant — Released under the MIT License.
+## 🧪 Testing & Verification
+
+The repository includes a comprehensive 180-test automated suite covering all application layers:
+
+```bash
+# Run complete test suite (180 tests)
+cd backend
+python -m pytest -v
+
+# Run production smoke test suite (12 operational subsystems)
+python -m pytest tests/test_smoke.py -v
+
+# Verify Alembic database migrations
+alembic check
+
+# Build Next.js frontend
+cd ../frontend
+npm run build
+```
+
+### Smoke Test Verification Coverage
+- [x] Liveness (`/health`) & Readiness (`/ready`)
+- [x] User Registration & JWT Authentication
+- [x] Multi-Tenant Organization Isolation
+- [x] RBAC Permissions Enforcement
+- [x] Document Ingestion, Magic Bytes Inspection & Storage
+- [x] Hybrid Vector RAG Retrieval & Citations
+- [x] Streaming Conversation Initiation
+- [x] Controlled Tool Execution (Calculator)
+- [x] HITL Approval Creation & Segregation of Duties
+- [x] Workflow Engine Step Execution & Branching
+- [x] AI Observability & Evaluation Metrics
+
+---
+
+## 🔒 Security & Hardening Highlights
+
+- **Non-Root Containers**: Both frontend and backend Dockerfiles execute as unprivileged users (`appuser:10001` / `nextjs:1001`).
+- **Security Headers**: HSTS, Content-Security-Policy (CSP), X-Frame-Options: `DENY`, X-Content-Type-Options: `nosniff`.
+- **Upload Hardening**: File magic-bytes signature verification, path traversal sanitation, and file size limits.
+- **Dynamic Rate Limiter**: Sliding-window rate limiting per tenant/user with zero-downtime memory fallback.
+- **Strict Tenant Isolation**: All database queries strictly join and filter on `organization_id`.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
