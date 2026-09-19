@@ -62,11 +62,25 @@ class WorkflowCreate(BaseModel):
             raise ValueError("Workflow name cannot be empty.")
         return v
 
+    @field_validator("steps")
+    @classmethod
+    def validate_steps_count(cls, v: List[WorkflowStepCreate]) -> List[WorkflowStepCreate]:
+        if len(v) > 50:
+            raise ValueError("Maximum of 50 steps permitted per workflow definition.")
+        return v
+
 
 class WorkflowUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=2000)
     steps: Optional[List[WorkflowStepCreate]] = None
+
+    @field_validator("steps")
+    @classmethod
+    def validate_steps_count(cls, v: Optional[List[WorkflowStepCreate]]) -> Optional[List[WorkflowStepCreate]]:
+        if v is not None and len(v) > 50:
+            raise ValueError("Maximum of 50 steps permitted per workflow definition.")
+        return v
 
 
 class WorkflowResponse(BaseModel):
@@ -91,6 +105,22 @@ class WorkflowListResponse(BaseModel):
 
 class WorkflowExecutionCreate(BaseModel):
     initial_inputs: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("initial_inputs")
+    @classmethod
+    def validate_initial_inputs(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        if len(v) > 50:
+            raise ValueError("Maximum of 50 initial input parameters permitted.")
+        import json
+        try:
+            serialized = json.dumps(v)
+            if len(serialized) > 65536:
+                raise ValueError("Initial inputs payload exceeds maximum size limit (64 KB).")
+        except (TypeError, ValueError) as e:
+            if "maximum size limit" in str(e):
+                raise
+            raise ValueError(f"Initial inputs must be JSON-serializable: {e}")
+        return v
 
 
 class WorkflowStepExecutionResponse(BaseModel):

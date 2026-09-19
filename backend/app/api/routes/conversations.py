@@ -120,6 +120,9 @@ async def delete_conversation(
     return None
 
 
+from app.core.rate_limit import rate_limiter
+from app.core.config import settings
+
 @router.get("/{conversation_id}/messages", response_model=list[MessageResponse])
 async def get_conversation_messages(
     conversation_id: str,
@@ -127,7 +130,18 @@ async def get_conversation_messages(
     db: AsyncSession = Depends(get_db),
     membership: Membership = Depends(require_viewer),
 ):
-    """Fetch message history for a conversation."""
+    """Fetch message history for a conversation. Enforces tenant isolation and returns 404 if not found."""
+    conversation = await chat_service.get_conversation(
+        db=db,
+        conversation_id=conversation_id,
+        organization_id=org_id,
+    )
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found in this organization",
+        )
+
     messages = await chat_service.get_messages(
         db=db,
         conversation_id=conversation_id,
@@ -145,6 +159,12 @@ async def stream_chat(
     membership: Membership = Depends(require_viewer),
 ):
     """Stream real-time assistant tokens and citations via Server-Sent Events (SSE)."""
+    # Rate limit chat streaming requests
+    await rate_limiter.check(
+        f"stream:{org_id}:{current_user.id}",
+        limit=settings.RATE_LIMIT_AI_PER_MINUTE,
+    )
+
     user_role = membership.role.value if hasattr(membership.role, "value") else str(membership.role)
     generator = chat_service.stream_chat_response(
         conversation_id=conversation_id,

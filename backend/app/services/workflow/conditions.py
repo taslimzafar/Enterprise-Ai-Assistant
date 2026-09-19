@@ -45,11 +45,14 @@ class SafeConditionEvaluator:
         current = context_data
 
         for part in parts:
+            part = part.strip()
+            # Forbid private, protected, or dunder attributes
+            if not part or part.startswith("_") or "__" in part:
+                return None
             if isinstance(current, dict):
                 current = current.get(part)
-            elif hasattr(current, part):
-                current = getattr(current, part)
             else:
+                # Do not allow arbitrary attribute inspection on non-dict objects
                 return None
             if current is None:
                 return None

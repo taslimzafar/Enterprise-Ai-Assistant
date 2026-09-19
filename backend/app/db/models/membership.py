@@ -9,6 +9,7 @@ class RoleEnum(str, enum.Enum):
     ADMIN = "ADMIN"
     MANAGER = "MANAGER"
     MEMBER = "MEMBER"
+    VIEWER = "VIEWER"
 
 class Membership(Base):
     __tablename__ = "memberships"

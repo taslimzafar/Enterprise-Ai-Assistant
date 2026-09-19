@@ -7,6 +7,9 @@ from app.schemas.rag import RAGQueryRequest, RAGQueryResponse
 from app.services.rag import RAGService
 from app.core.logging import logger
 
+from app.core.rate_limit import rate_limiter
+from app.core.config import settings
+
 router = APIRouter()
 rag_service = RAGService()
 
@@ -25,6 +28,12 @@ async def query_knowledge_base(
     Authenticates user, verifies active organization membership and RBAC role,
     and returns a grounded answer with citations scoped strictly to the organization.
     """
+    # Rate limit RAG queries
+    await rate_limiter.check(
+        f"rag:{membership.organization_id}:{membership.user_id}",
+        limit=settings.RATE_LIMIT_AI_PER_MINUTE,
+    )
+
     cleaned_q = payload.question.strip()
     if not cleaned_q:
         raise HTTPException(

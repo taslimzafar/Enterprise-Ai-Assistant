@@ -44,12 +44,24 @@ async def get_current_user(
         if user_id is None:
             raise credentials_exception
         token_data = TokenPayload(sub=user_id)
-    except jwt.PyJWTError:
+    except jwt.PyJWTError as e:
+        from app.core.audit_logger import log_security_event
+        log_security_event(
+            "AUTH_TOKEN_INVALID",
+            {"error": str(e), "token_prefix": token[:10] if token else "none"},
+            severity="WARNING",
+        )
         raise credentials_exception
         
     result = await db.execute(select(User).filter(User.id == token_data.sub))
     user = result.scalar_one_or_none()
     if user is None:
+        from app.core.audit_logger import log_security_event
+        log_security_event(
+            "AUTH_USER_NOT_FOUND",
+            {"user_id": token_data.sub},
+            severity="WARNING",
+        )
         raise credentials_exception
     return user
 
@@ -57,6 +69,12 @@ async def get_current_active_user(
     current_user: User = Depends(get_current_user)
 ) -> User:
     if not current_user.is_active:
+        from app.core.audit_logger import log_security_event
+        log_security_event(
+            "AUTH_INACTIVE_USER",
+            {"user_id": current_user.id},
+            severity="WARNING",
+        )
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
@@ -73,6 +91,14 @@ async def get_current_membership(
     )
     membership = result.scalar_one_or_none()
     if not membership:
+        from app.core.audit_logger import log_security_event
+        log_security_event(
+            "CROSS_TENANT_ACCESS_DENIED",
+            {"attempted_org_id": org_id, "user_id": current_user.id},
+            user_id=current_user.id,
+            organization_id=org_id,
+            severity="WARNING",
+        )
         raise HTTPException(status_code=403, detail="Not a member of this organization")
     return membership
 
@@ -82,5 +108,17 @@ class RoleChecker:
 
     def __call__(self, membership: Membership = Depends(get_current_membership)) -> Membership:
         if membership.role not in self.allowed_roles:
+            from app.core.audit_logger import log_security_event
+            log_security_event(
+                "PERMISSION_DENIED",
+                {
+                    "user_role": str(membership.role),
+                    "allowed_roles": [str(r) for r in self.allowed_roles],
+                    "org_id": membership.organization_id,
+                },
+                user_id=membership.user_id,
+                organization_id=membership.organization_id,
+                severity="WARNING",
+            )
             raise HTTPException(status_code=403, detail="Operation not permitted")
         return membership

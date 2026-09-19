@@ -67,6 +67,59 @@ def _get_file_type(filename: str, content_type: str | None) -> str:
     return file_type
 
 
+import os
+from app.core.rate_limit import rate_limiter
+from app.core.audit_logger import log_security_event
+
+
+def _validate_magic_bytes(file_type: str, file_bytes: bytes) -> None:
+    """Verify file magic bytes against declared file type to prevent malicious upload masquerading."""
+    if file_type == "pdf":
+        if not file_bytes.startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=400,
+                detail="File content signature does not match PDF format (missing %PDF- header)."
+            )
+    elif file_type == "docx":
+        # DOCX files are OpenXML ZIP archives starting with PK\x03\x04
+        if not file_bytes.startswith(b"PK\x03\x04"):
+            raise HTTPException(
+                status_code=400,
+                detail="File content signature does not match DOCX format (invalid archive header)."
+            )
+    elif file_type == "txt":
+        # Disallow executable signatures masked as text
+        if file_bytes.startswith(b"MZ") or file_bytes.startswith(b"\x7fELF"):
+            raise HTTPException(
+                status_code=400,
+                detail="Executable binary files cannot be uploaded as text."
+            )
+        # Plain text should not contain null bytes
+        if b"\x00" in file_bytes[:1024]:
+            raise HTTPException(
+                status_code=400,
+                detail="Binary content with null bytes is not permitted for text files."
+            )
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize original filename against path traversal, null bytes, and dangerous characters."""
+    import urllib.parse
+    decoded = urllib.parse.unquote(filename)
+    if "\x00" in filename or "\x00" in decoded or "%00" in filename.lower():
+        raise HTTPException(status_code=400, detail="Filename contains illegal null bytes.")
+    
+    # Strip any directory paths
+    clean = os.path.basename(filename).strip()
+    clean = clean.replace("/", "").replace("\\", "")
+    
+    # Check for path traversal markers
+    if ".." in clean or clean in ("", ".", ".."):
+        clean = "sanitized_document"
+        
+    return clean[:255]
+
+
 @router.post("")
 async def upload_document(
     file: UploadFile = File(...),
@@ -76,18 +129,25 @@ async def upload_document(
 ):
     """Upload a document for processing.
     
-    Validates file type, size, and stores the file securely.
+    Validates file type, size, magic bytes signature, sanitizes filename, and stores securely.
     Triggers document processing (text extraction → normalization → chunking).
     """
-    original_filename = file.filename or "untitled"
+    raw_filename = file.filename or "untitled"
+    original_filename = _sanitize_filename(raw_filename)
     
+    # Rate limit uploads per org/user
+    await rate_limiter.check(
+        f"upload:{membership.organization_id}:{membership.user_id}",
+        limit=settings.RATE_LIMIT_UPLOAD_PER_MINUTE,
+    )
+
     logger.info(
         f"Document upload started: org_id={org_id}, "
         f"filename={original_filename}, "
         f"user_id={membership.user_id}"
     )
 
-    # Validate file type
+    # Validate file extension and MIME type
     file_type = _get_file_type(original_filename, file.content_type)
 
     # Read file content
@@ -104,6 +164,9 @@ async def upload_document(
 
     if file_size == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    # Validate magic bytes / file signatures
+    _validate_magic_bytes(file_type, file_bytes)
 
     # Generate safe storage key — never use raw user filename
     safe_filename = f"{uuid.uuid4().hex}.{file_type}"

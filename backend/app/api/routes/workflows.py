@@ -32,12 +32,15 @@ from app.services.workflow.exceptions import (
     InvalidConditionError,
 )
 
+from app.core.rate_limit import rate_limiter
+from app.core.config import settings
+
 router = APIRouter()
 
 # Role permissions
 MANAGERS_ONLY = RoleChecker([RoleEnum.OWNER, RoleEnum.ADMIN, RoleEnum.MANAGER])
 MEMBERS_ALLOWED = RoleChecker([RoleEnum.OWNER, RoleEnum.ADMIN, RoleEnum.MANAGER, RoleEnum.MEMBER])
-ALL_ROLES = RoleChecker([RoleEnum.OWNER, RoleEnum.ADMIN, RoleEnum.MANAGER, RoleEnum.MEMBER])
+ALL_ROLES = RoleChecker([RoleEnum.OWNER, RoleEnum.ADMIN, RoleEnum.MANAGER, RoleEnum.MEMBER, RoleEnum.VIEWER])
 
 
 @router.post(
@@ -186,6 +189,10 @@ async def execute_workflow(
     current_user: User = Depends(get_current_active_user),
     membership: Membership = Depends(MEMBERS_ALLOWED),
 ):
+    await rate_limiter.check(
+        f"workflow:execute:{org_id}:{current_user.id}",
+        limit=settings.RATE_LIMIT_WORKFLOW_PER_MINUTE,
+    )
     try:
         inputs = execution_in.initial_inputs if execution_in else {}
         execution = await workflow_service.start_execution(

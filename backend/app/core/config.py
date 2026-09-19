@@ -19,9 +19,26 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
     
-    # Security
+    # Security & CORS
     JWT_SECRET: str = "supersecretkey" # Override in production
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
+    BACKEND_CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+    
+    # Rate Limiting & Abuse Protection
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 15
+    RATE_LIMIT_AI_PER_MINUTE: int = 30
+    RATE_LIMIT_UPLOAD_PER_MINUTE: int = 20
+    RATE_LIMIT_WORKFLOW_PER_MINUTE: int = 20
+    
+    # Resource Limits
+    MAX_REQUEST_BODY_BYTES: int = 10 * 1024 * 1024  # 10 MB limit for non-upload request bodies
+    WORKFLOW_MAX_STEPS: int = 50
     
     # LLM & Embedding Settings
     LLM_PROVIDER: str = "gemini"  # gemini, openai, ollama

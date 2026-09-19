@@ -21,13 +21,40 @@ def create_app() -> FastAPI:
         redoc_url=f"{settings.API_V1_STR}/redoc",
     )
 
-    # Set up CORS middleware
-    # In production, specify exact origins
+    # Security Headers Middleware
+    from app.core.security_headers import SecurityHeadersMiddleware
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # Content-Length Limit Middleware to protect against resource exhaustion
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.requests import Request
+
+    class ContentLengthLimitMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            # Enforce body limit for standard JSON/REST endpoints; documents upload endpoint enforces MAX_UPLOAD_SIZE_MB natively
+            if "/documents" not in request.url.path:
+                content_length = request.headers.get("content-length")
+                if content_length:
+                    try:
+                        length = int(content_length)
+                        if length > settings.MAX_REQUEST_BODY_BYTES:
+                            return Response(
+                                content="Payload Too Large: Request body exceeds permitted size limit.",
+                                status_code=413,
+                                media_type="text/plain",
+                            )
+                    except ValueError:
+                        pass
+            return await call_next(request)
+
+    app.add_middleware(ContentLengthLimitMiddleware)
+
+    # Set up CORS middleware with explicit configured origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.BACKEND_CORS_ORIGINS,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
