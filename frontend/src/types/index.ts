@@ -102,3 +102,64 @@ export interface Approval {
   rejection_reason?: string | null;
 }
 
+export type WorkflowStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED';
+export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'WAITING_APPROVAL' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type StepExecutionStatus = 'PENDING' | 'RUNNING' | 'WAITING_APPROVAL' | 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'CANCELLED';
+export type StepType = 'KNOWLEDGE_SEARCH' | 'CALCULATOR' | 'ORGANIZATION_STATS' | 'DEMO_NOTE' | 'LLM_GENERATION';
+
+export interface WorkflowStep {
+  id: string;
+  workflow_id: string;
+  name: string;
+  type: StepType;
+  order: number;
+  configuration: Record<string, any>;
+  input_mapping: Record<string, any>;
+  output_key: string;
+  timeout_seconds: number;
+  retry_count: number;
+  requires_approval: boolean;
+  condition?: Record<string, any> | null;
+}
+
+export interface Workflow {
+  id: string;
+  organization_id: string;
+  name: string;
+  description: string;
+  status: WorkflowStatus;
+  version: number;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  steps: WorkflowStep[];
+}
+
+export interface WorkflowStepExecution {
+  id: string;
+  execution_id: string;
+  step_id: string;
+  status: StepExecutionStatus;
+  inputs: Record<string, any>;
+  outputs: Record<string, any>;
+  error?: string | null;
+  retry_attempts: number;
+  approval_id?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface WorkflowExecution {
+  id: string;
+  workflow_id: string;
+  organization_id: string;
+  status: ExecutionStatus;
+  context_data: Record<string, any>;
+  error?: string | null;
+  executed_by?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  step_executions: WorkflowStepExecution[];
+}
+

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import health, chat, auth, organizations, documents, rag, conversations, approvals
+from app.api.routes import health, chat, auth, organizations, documents, rag, conversations, approvals, workflows
 
 api_router = APIRouter()
 
@@ -12,3 +12,4 @@ api_router.include_router(documents.router, prefix="/documents", tags=["document
 api_router.include_router(rag.router, prefix="/rag", tags=["rag"])
 api_router.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
 api_router.include_router(approvals.router, tags=["approvals"])
+api_router.include_router(workflows.router, tags=["workflows"])

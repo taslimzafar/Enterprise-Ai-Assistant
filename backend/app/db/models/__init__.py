@@ -7,6 +7,16 @@ from .document_chunk import DocumentChunk
 from .conversation import Conversation
 from .message import Message, MessageRole, MessageStatus
 from .approval import Approval, ApprovalStatus
+from .workflow import (
+    Workflow,
+    WorkflowStep,
+    WorkflowExecution,
+    WorkflowStepExecution,
+    WorkflowStatus,
+    ExecutionStatus,
+    StepExecutionStatus,
+    StepType,
+)
 
 # Expose all models so Alembic can discover them
 __all__ = [
@@ -24,4 +34,12 @@ __all__ = [
     "MessageStatus",
     "Approval",
     "ApprovalStatus",
+    "Workflow",
+    "WorkflowStep",
+    "WorkflowExecution",
+    "WorkflowStepExecution",
+    "WorkflowStatus",
+    "ExecutionStatus",
+    "StepExecutionStatus",
+    "StepType",
 ]
