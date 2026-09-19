@@ -20,11 +20,17 @@ import {
   AlertCircle,
   Search,
   CheckCheck,
+  ShieldCheck,
+  CheckCircle2,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 import { Organization, Conversation, Message, RAGSource } from '@/types';
 
 export default function AssistantChatPage() {
+  const { user } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string>('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -249,10 +255,15 @@ export default function AssistantChatPage() {
       created_at: new Date().toISOString(),
     };
 
+    setMessages((prev) => [...prev, tempUserMsg]);
+    await sendStream(finalConvId, query);
+  };
+
+  const sendStream = async (convId: string, query: string, approvalId?: string) => {
     // Temporary assistant placeholder
     const tempAssistantMsg: Message = {
       id: 'temp-assistant-' + Date.now(),
-      conversation_id: finalConvId,
+      conversation_id: convId,
       role: 'assistant',
       content: '',
       status: 'streaming',
@@ -260,9 +271,9 @@ export default function AssistantChatPage() {
       created_at: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, tempUserMsg, tempAssistantMsg]);
+    setMessages((prev) => [...prev, tempAssistantMsg]);
     setIsStreaming(true);
-    setAgentStatus('Understanding query...');
+    setAgentStatus(approvalId ? 'Resuming authorized workflow...' : 'Understanding query...');
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -279,7 +290,7 @@ export default function AssistantChatPage() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ message: query }),
+          body: JSON.stringify({ message: query, approval_id: approvalId }),
           signal: abortController.signal,
         }
       );
@@ -334,6 +345,59 @@ export default function AssistantChatPage() {
                 } else if (parsed.intent === 'unsupported') {
                   setAgentStatus('Evaluating request...');
                 }
+              } else if (currentEvent === 'approval_required') {
+                setAgentStatus(null);
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last && last.role === 'assistant') {
+                    return [
+                      ...prev.slice(0, -1),
+                      {
+                        ...last,
+                        metadata: { ...last.metadata, approval: parsed },
+                      },
+                    ];
+                  }
+                  return prev;
+                });
+              } else if (currentEvent === 'approval_approved') {
+                setAgentStatus('Action authorized. Executing...');
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last && last.role === 'assistant' && last.metadata?.approval) {
+                    return [
+                      ...prev.slice(0, -1),
+                      {
+                        ...last,
+                        metadata: {
+                          ...last.metadata,
+                          approval: { ...last.metadata.approval, status: 'APPROVED' },
+                        },
+                      },
+                    ];
+                  }
+                  return prev;
+                });
+              } else if (currentEvent === 'approval_rejected') {
+                setAgentStatus(null);
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last && last.role === 'assistant' && last.metadata?.approval) {
+                    return [
+                      ...prev.slice(0, -1),
+                      {
+                        ...last,
+                        metadata: {
+                          ...last.metadata,
+                          approval: { ...last.metadata.approval, status: 'REJECTED' },
+                        },
+                      },
+                    ];
+                  }
+                  return prev;
+                });
+              } else if (currentEvent === 'approval_expired' || currentEvent === 'approval_cancelled') {
+                setAgentStatus(null);
               } else if (currentEvent === 'tool_start') {
                 if (parsed.tool === 'knowledge_search') {
                   setAgentStatus('Searching knowledge...');
@@ -341,6 +405,8 @@ export default function AssistantChatPage() {
                   setAgentStatus('Calculating...');
                 } else if (parsed.tool === 'database_query' || parsed.tool === 'organization_stats') {
                   setAgentStatus('Checking organization data...');
+                } else if (parsed.tool === 'create_demo_note') {
+                  setAgentStatus('Creating authorized demo note...');
                 } else {
                   setAgentStatus('Running tool...');
                 }
@@ -428,6 +494,34 @@ export default function AssistantChatPage() {
     } finally {
       setIsStreaming(false);
       abortControllerRef.current = null;
+    }
+  };
+
+  const handleApproveFromChat = async (approvalId: string) => {
+    if (!selectedOrgId || !activeConversationId || isStreaming) return;
+    try {
+      setAgentStatus('Authorizing execution...');
+      await api.post(`/approvals/${approvalId}/approve?org_id=${selectedOrgId}`);
+      // Resume agent workflow with approval_id
+      await sendStream(activeConversationId, 'Proceed with approved action.', approvalId);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to approve action.');
+      setAgentStatus(null);
+    }
+  };
+
+  const handleRejectFromChat = async (approvalId: string) => {
+    if (!selectedOrgId || !activeConversationId || isStreaming) return;
+    try {
+      setAgentStatus('Rejecting action...');
+      await api.post(`/approvals/${approvalId}/reject?org_id=${selectedOrgId}`, {
+        rejection_reason: 'Action rejected by authorized reviewer in chat.',
+      });
+      // Resume agent workflow to reflect rejection
+      await sendStream(activeConversationId, 'Action was rejected.', approvalId);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to reject action.');
+      setAgentStatus(null);
     }
   };
 
@@ -694,6 +788,99 @@ export default function AssistantChatPage() {
                         )}
                       </div>
                     )}
+
+                    {/* Human-in-the-Loop Approval Card */}
+                    {!isUser && msg.metadata?.approval && (() => {
+                      const approval = msg.metadata.approval;
+                      const isRequester = Boolean(user && user.id === approval.requested_by_user_id);
+                      return (
+                        <div className="mt-3 p-3.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs space-y-2.5 shadow-md">
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                              <span className="font-semibold text-white tracking-tight">Authorization Required</span>
+                            </div>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              approval.status === 'APPROVED' 
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : approval.status === 'REJECTED'
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                            }`}>
+                              {approval.status || 'PENDING'}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1 text-slate-300">
+                            <div className="flex items-center gap-2 text-[11px] flex-wrap">
+                              <span className="text-slate-400">Tool:</span>
+                              <code className="bg-slate-800 px-1.5 py-0.5 rounded text-indigo-400 font-mono">
+                                {approval.tool}
+                              </code>
+                              <span className="text-slate-400">Action:</span>
+                              <span className="font-medium text-slate-200">{approval.action_type}</span>
+                            </div>
+                            {approval.description && (
+                              <p className="text-slate-300 text-[11px] pt-1">{approval.description}</p>
+                            )}
+                            {approval.action_arguments && Object.keys(approval.action_arguments).length > 0 && (
+                              <div className="pt-1">
+                                <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">Arguments:</span>
+                                <pre className="bg-slate-950 p-2 rounded text-[10px] font-mono text-emerald-400 overflow-x-auto border border-slate-800">
+                                  {JSON.stringify(approval.action_arguments, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                            <div className="text-[10px] text-slate-400 pt-1 flex items-center gap-3">
+                              <span>Requested by: <code className="text-slate-300">{approval.requested_by_user_id ? approval.requested_by_user_id.slice(0, 8) + '...' : 'User'}</code></span>
+                              {approval.expires_at && (
+                                <span className="text-amber-400/90">Expires: {new Date(approval.expires_at).toLocaleTimeString()}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Actions if PENDING */}
+                          {approval.status === 'PENDING' ? (
+                            <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                              <button
+                                onClick={() => handleApproveFromChat(approval.approval_id)}
+                                disabled={isStreaming || isRequester}
+                                title={isRequester ? "Anti-self-approval: Requester cannot approve own action" : "Approve and execute"}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                  isRequester
+                                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md'
+                                }`}
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectFromChat(approval.approval_id)}
+                                disabled={isStreaming}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition-all"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                Reject
+                              </button>
+                              {isRequester && (
+                                <span className="text-[10px] text-amber-400/80 italic ml-auto">
+                                  (Requires peer/manager authorization)
+                                </span>
+                              )}
+                            </div>
+                          ) : approval.status === 'APPROVED' ? (
+                            <div className="text-[11px] text-emerald-400 font-medium pt-1 flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Approved — executing action...
+                            </div>
+                          ) : approval.status === 'REJECTED' ? (
+                            <div className="text-[11px] text-rose-400 font-medium pt-1 flex items-center gap-1.5">
+                              <XCircle className="w-3.5 h-3.5" /> Action rejected.
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
 
                     {/* Citations / Sources for Assistant Responses */}
                     {!isUser && sources.length > 0 && (

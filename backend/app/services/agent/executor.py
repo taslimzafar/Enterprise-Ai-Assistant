@@ -8,6 +8,7 @@ from app.services.agent.nodes import (
     agent_decision_node,
     execute_tool_node,
     retrieve_knowledge_node,
+    approval_check_node,
 )
 from app.services.agent.prompts import (
     CONVERSATIONAL_SYSTEM_INSTRUCTION,
@@ -40,6 +41,7 @@ class AgentService:
         message: str,
         conversation_history: list[dict[str, str]] | None = None,
         user_role: str = "MEMBER",
+        approval_id: Optional[str] = None,
     ) -> AgentState:
         """Run the full LangGraph agent synchronously to completion."""
         initial_state: AgentState = {
@@ -53,6 +55,7 @@ class AgentService:
             "status": "pending",
             "tool_call_count": 0,
             "tool_history": [],
+            "approval_id": approval_id,
         }
 
         final_state = await self.graph.ainvoke(initial_state)
@@ -66,6 +69,7 @@ class AgentService:
         message: str,
         conversation_history: list[dict[str, str]] | None = None,
         user_role: str = "MEMBER",
+        approval_id: Optional[str] = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent workflow and stream structured lifecycle events, tool executions, and tokens."""
         query = message.strip()
@@ -82,6 +86,7 @@ class AgentService:
             "status": "processing",
             "tool_call_count": 0,
             "tool_history": [],
+            "approval_id": approval_id,
         }
 
         yield {"event": "agent_start", "data": {"agent_version": "v1"}}
@@ -105,8 +110,153 @@ class AgentService:
         state.update(decision_update)
         selected_tool = state.get("selected_tool")
 
-        # 3. Tool Execution (if tool selected)
+        # 3. Tool Execution (with Phase 10 Human-in-the-Loop check)
         if selected_tool:
+            # Approval Check Node
+            approval_update = await approval_check_node(state)
+            state.update(approval_update)
+
+            appr_status = state.get("approval_status")
+            appr_id = state.get("approval_id")
+            appr_data = state.get("approval_data") or {}
+
+            if appr_status == "APPROVED":
+                yield {
+                    "event": "approval_approved",
+                    "data": {
+                        "approval_id": appr_id,
+                        "tool": selected_tool,
+                    },
+                }
+
+            elif appr_status == "PENDING":
+                yield {
+                    "event": "approval_required",
+                    "data": {
+                        "approval_id": appr_id,
+                        "tool": selected_tool,
+                        "action_type": appr_data.get("action_type", "execute"),
+                        "action_arguments": appr_data.get("action_arguments", {}),
+                        "description": appr_data.get("description", ""),
+                        "status": "PENDING",
+                        "expires_at": appr_data.get("expires_at"),
+                        "requested_by_user_id": appr_data.get("requested_by_user_id"),
+                    },
+                }
+                info_text = f"Action '{selected_tool}' requires human approval before execution. Request ID: {appr_id}."
+                yield {"event": "generation_start", "data": {}}
+                for word in info_text.split(" "):
+                    yield {"event": "token", "data": {"text": word + " "}}
+                    await asyncio.sleep(0.01)
+
+                yield {
+                    "event": "agent_complete",
+                    "data": {
+                        "agent_version": "v1",
+                        "intent": intent,
+                        "retrieval_used": False,
+                        "sources_count": 0,
+                        "final_answer": info_text,
+                        "sources": [],
+                        "tool_history": state.get("tool_history", []),
+                        "approval_id": appr_id,
+                        "approval_status": "PENDING",
+                    },
+                }
+                return
+
+            elif appr_status == "REJECTED":
+                yield {
+                    "event": "approval_rejected",
+                    "data": {
+                        "approval_id": appr_id,
+                        "tool": selected_tool,
+                        "rejection_reason": appr_data.get("rejection_reason", "Action was rejected by an authorized reviewer."),
+                    },
+                }
+                info_text = f"Action '{selected_tool}' was rejected: {appr_data.get('rejection_reason', 'Rejected by administrator')}."
+                yield {"event": "generation_start", "data": {}}
+                for word in info_text.split(" "):
+                    yield {"event": "token", "data": {"text": word + " "}}
+                    await asyncio.sleep(0.01)
+
+                yield {
+                    "event": "agent_complete",
+                    "data": {
+                        "agent_version": "v1",
+                        "intent": intent,
+                        "retrieval_used": False,
+                        "sources_count": 0,
+                        "final_answer": info_text,
+                        "sources": [],
+                        "tool_history": state.get("tool_history", []),
+                        "approval_id": appr_id,
+                        "approval_status": "REJECTED",
+                    },
+                }
+                return
+
+            elif appr_status == "EXPIRED":
+                yield {
+                    "event": "approval_expired",
+                    "data": {
+                        "approval_id": appr_id,
+                        "tool": selected_tool,
+                    },
+                }
+                info_text = f"Action '{selected_tool}' expired before being approved."
+                yield {"event": "generation_start", "data": {}}
+                for word in info_text.split(" "):
+                    yield {"event": "token", "data": {"text": word + " "}}
+                    await asyncio.sleep(0.01)
+
+                yield {
+                    "event": "agent_complete",
+                    "data": {
+                        "agent_version": "v1",
+                        "intent": intent,
+                        "retrieval_used": False,
+                        "sources_count": 0,
+                        "final_answer": info_text,
+                        "sources": [],
+                        "tool_history": state.get("tool_history", []),
+                        "approval_id": appr_id,
+                        "approval_status": "EXPIRED",
+                    },
+                }
+                return
+
+            elif appr_status == "CANCELLED":
+                yield {
+                    "event": "approval_cancelled",
+                    "data": {
+                        "approval_id": appr_id,
+                        "tool": selected_tool,
+                    },
+                }
+                info_text = f"Action '{selected_tool}' was cancelled."
+                yield {"event": "generation_start", "data": {}}
+                for word in info_text.split(" "):
+                    yield {"event": "token", "data": {"text": word + " "}}
+                    await asyncio.sleep(0.01)
+
+                yield {
+                    "event": "agent_complete",
+                    "data": {
+                        "agent_version": "v1",
+                        "intent": intent,
+                        "retrieval_used": False,
+                        "sources_count": 0,
+                        "final_answer": info_text,
+                        "sources": [],
+                        "tool_history": state.get("tool_history", []),
+                        "approval_id": appr_id,
+                        "approval_status": "CANCELLED",
+                    },
+                }
+                return
+
+            # Now safe to execute tool
             yield {"event": "tool_start", "data": {"tool": selected_tool}}
 
             tool_exec_update = await execute_tool_node(state)

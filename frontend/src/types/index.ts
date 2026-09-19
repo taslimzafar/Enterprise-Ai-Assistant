@@ -80,3 +80,25 @@ export interface Conversation {
   created_at: string;
   updated_at?: string | null;
 }
+
+export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
+
+export interface Approval {
+  id: string;
+  organization_id: string;
+  requested_by_user_id: string;
+  conversation_id?: string | null;
+  message_id?: string | null;
+  tool_name: string;
+  action_type: string;
+  action_arguments: Record<string, any>;
+  reason: string;
+  status: ApprovalStatus;
+  created_at: string;
+  updated_at?: string | null;
+  expires_at?: string | null;
+  approved_by_user_id?: string | null;
+  approved_at?: string | null;
+  rejection_reason?: string | null;
+}
+

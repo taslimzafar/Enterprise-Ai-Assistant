@@ -23,3 +23,8 @@ class AgentState(TypedDict, total=False):
     tool_error: Optional[str]
     tool_call_count: int
     tool_history: list[dict[str, Any]]
+    # Phase 10: Human-in-the-Loop approval state
+    approval_required: bool
+    approval_id: Optional[str]
+    approval_status: Optional[str]
+    approval_data: Optional[dict[str, Any]]

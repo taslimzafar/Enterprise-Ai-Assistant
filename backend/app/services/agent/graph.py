@@ -4,15 +4,16 @@ from app.services.agent.nodes import (
     load_context_node,
     classify_intent_node,
     agent_decision_node,
+    approval_check_node,
     execute_tool_node,
     retrieve_knowledge_node,
     generate_answer_node,
 )
-from app.services.agent.router import decide_execution_route
+from app.services.agent.router import decide_execution_route, decide_approval_route
 
 
 def create_agent_graph():
-    """Build and compile the Phase 9 LangGraph enterprise agent workflow.
+    """Build and compile the Phase 10 LangGraph enterprise agent workflow with HITL approvals.
 
     Graph topology:
     START
@@ -24,9 +25,11 @@ def create_agent_graph():
     agent_decision
       ↓
     [decide_execution_route]
-      ├── execute_tool ───────► generate_answer → END
-      ├── retrieve_knowledge ─► generate_answer → END
-      └── generate_answer ─────────────────────→ END
+      ├── approval_check ──────► [decide_approval_route]
+      │                            ├── execute_tool ──► generate_answer → END
+      │                            └── generate_answer ─────────────────→ END
+      ├── retrieve_knowledge ──► generate_answer → END
+      └── generate_answer ───────────────────────────→ END
     """
     workflow = StateGraph(AgentState)
 
@@ -34,6 +37,7 @@ def create_agent_graph():
     workflow.add_node("load_context", load_context_node)
     workflow.add_node("classify_intent", classify_intent_node)
     workflow.add_node("agent_decision", agent_decision_node)
+    workflow.add_node("approval_check", approval_check_node)
     workflow.add_node("execute_tool", execute_tool_node)
     workflow.add_node("retrieve_knowledge", retrieve_knowledge_node)
     workflow.add_node("generate_answer", generate_answer_node)
@@ -48,8 +52,18 @@ def create_agent_graph():
         "agent_decision",
         decide_execution_route,
         {
-            "execute_tool": "execute_tool",
+            "approval_check": "approval_check",
             "retrieve_knowledge": "retrieve_knowledge",
+            "generate_answer": "generate_answer",
+        },
+    )
+
+    # Conditional branching from approval_check
+    workflow.add_conditional_edges(
+        "approval_check",
+        decide_approval_route,
+        {
+            "execute_tool": "execute_tool",
             "generate_answer": "generate_answer",
         },
     )

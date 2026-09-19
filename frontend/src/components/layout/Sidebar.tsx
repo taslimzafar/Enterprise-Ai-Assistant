@@ -9,7 +9,8 @@ import {
   FileText, 
   Bot, 
   Settings,
-  Workflow
+  Workflow,
+  ShieldCheck
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -24,6 +25,7 @@ export default function Sidebar() {
     { name: 'Members', href: activeOrganization ? `/organizations/${activeOrganization.id}/members` : '/organizations', icon: Users },
     { name: 'Documents', href: '/documents', icon: FileText },
     { name: 'AI Assistant', href: '/assistant', icon: Bot },
+    { name: 'Approvals', href: '/approvals', icon: ShieldCheck },
     { name: 'Workflows', href: '/workflows', icon: Workflow },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];

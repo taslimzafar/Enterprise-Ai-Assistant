@@ -6,6 +6,7 @@ from .document import Document, DocumentStatus
 from .document_chunk import DocumentChunk
 from .conversation import Conversation
 from .message import Message, MessageRole, MessageStatus
+from .approval import Approval, ApprovalStatus
 
 # Expose all models so Alembic can discover them
 __all__ = [
@@ -21,4 +22,6 @@ __all__ = [
     "Message",
     "MessageRole",
     "MessageStatus",
+    "Approval",
+    "ApprovalStatus",
 ]

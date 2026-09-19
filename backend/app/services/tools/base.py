@@ -27,6 +27,8 @@ class BaseTool(ABC):
     input_schema: Type[BaseModel]
     output_schema: Type[BaseModel]
     required_roles: list[str] = Field(default_factory=lambda: ["MEMBER", "MANAGER", "ADMIN", "OWNER"])
+    requires_approval: bool = False
+    action_type: str = "read"
 
     @abstractmethod
     async def execute(self, input_data: BaseModel, context: ToolContext) -> ToolResult:
@@ -41,4 +43,6 @@ class BaseTool(ABC):
             "description": self.description,
             "parameters": schema,
             "required_roles": self.required_roles,
+            "requires_approval": self.requires_approval,
+            "action_type": self.action_type,
         }

@@ -37,3 +37,4 @@ class ConversationResponse(BaseModel):
 
 class ChatStreamRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
+    approval_id: Optional[str] = Field(None, description="Optional approved approval reference to resume execution.")

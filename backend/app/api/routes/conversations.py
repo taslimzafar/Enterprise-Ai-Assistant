@@ -152,6 +152,7 @@ async def stream_chat(
         organization_id=org_id,
         user_id=current_user.id,
         user_role=user_role,
+        approval_id=payload.approval_id,
     )
 
     return StreamingResponse(

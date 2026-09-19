@@ -130,6 +130,7 @@ class ChatService:
         organization_id: str,
         user_id: str,
         user_role: str = "MEMBER",
+        approval_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """Execute RAG retrieval and stream SSE response tokens with cancellation support."""
         cleaned_query = user_text.strip()
@@ -210,6 +211,7 @@ class ChatService:
                 message=cleaned_query,
                 conversation_history=formatted_history,
                 user_role=user_role,
+                approval_id=approval_id,
             )
 
             agent_meta = {
@@ -231,6 +233,22 @@ class ChatService:
                     agent_meta["agent"]["intent"] = ev_data.get("intent", "knowledge_question")
                     agent_meta["agent"]["retrieval_used"] = ev_data.get("needs_retrieval", False)
                     yield f"event: agent_intent\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "approval_required":
+                    agent_meta["approval"] = ev_data
+                    yield f"event: approval_required\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "approval_approved":
+                    yield f"event: approval_approved\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "approval_rejected":
+                    yield f"event: approval_rejected\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "approval_expired":
+                    yield f"event: approval_expired\ndata: {json.dumps(ev_data)}\n\n"
+
+                elif ev_type == "approval_cancelled":
+                    yield f"event: approval_cancelled\ndata: {json.dumps(ev_data)}\n\n"
 
                 elif ev_type == "tool_start":
                     yield f"event: tool_start\ndata: {json.dumps(ev_data)}\n\n"
@@ -256,6 +274,9 @@ class ChatService:
                     agent_meta["agent"]["sources_count"] = ev_data.get("sources_count", len(sources))
                     agent_meta["sources"] = ev_data.get("sources", sources)
                     agent_meta["agent"]["tools"] = ev_data.get("tool_history", [])
+                    if "approval_id" in ev_data:
+                        agent_meta["approval_id"] = ev_data["approval_id"]
+                        agent_meta["approval_status"] = ev_data.get("approval_status")
 
             # 4. Finalize assistant message in DB with agent execution metadata
             final_content = accumulated_text.strip() or NO_ANSWER_FOUND

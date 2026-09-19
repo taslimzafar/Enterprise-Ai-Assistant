@@ -95,6 +95,12 @@ class TestLLMProvider(LLMProvider):
         # 2. Tool decision reasoning mock
         if system_instruction and "tool decision" in system_instruction.lower():
             user_part = prompt.split("User Message:")[-1].split("Decide action")[0].strip().lower() if "User Message:" in prompt else prompt.lower()
+            if any(k in user_part for k in ["create demo note", "demo note", "create note", "demo_note"]):
+                return json.dumps({
+                    "action": "call_tool",
+                    "tool": "create_demo_note",
+                    "arguments": {"title": "Test Note", "content": "Demo note body"}
+                })
             if any(k in user_part for k in ["calculate", "compute", "math", "25 * 4"]):
                 return '{"action": "call_tool", "tool": "calculator", "arguments": {"expression": "25 * 4"}}'
             if any(k in user_part for k in ["database", "how many documents", "count documents", "statistics", "stats"]):
@@ -122,6 +128,8 @@ class TestLLMProvider(LLMProvider):
                 return "The calculation result is 100."
             if "database_query" in prompt:
                 return "Based on your organization data, there are currently verified documents indexed."
+            if "create_demo_note" in prompt:
+                return "Demo note created successfully."
             return "The tool execution completed successfully."
 
         # 6. RAG and general generation mock

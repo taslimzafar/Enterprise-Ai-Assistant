@@ -1,6 +1,7 @@
 import json
 import re
 from typing import Any
+from sqlalchemy import select
 from app.core.config import settings
 from app.core.logging import logger
 import app.db.database as db_module
@@ -20,6 +21,8 @@ from app.services.retrieval import RetrievalService, ContextBuilder
 from app.services.rag.prompt import RAG_SYSTEM_INSTRUCTION, format_chat_rag_prompt
 from app.services.rag.service import NO_ANSWER_FOUND
 from app.services.tools import tool_registry, ToolContext, ToolResult
+from app.services.approval.service import approval_service
+from app.db.models.approval import ApprovalStatus
 
 retriever = RetrievalService()
 context_builder = ContextBuilder()
@@ -52,6 +55,10 @@ async def load_context_node(state: AgentState) -> dict[str, Any]:
         "tool_error": None,
         "tool_call_count": state.get("tool_call_count", 0),
         "tool_history": state.get("tool_history", []),
+        "approval_required": state.get("approval_required", False),
+        "approval_id": state.get("approval_id"),
+        "approval_status": state.get("approval_status"),
+        "approval_data": state.get("approval_data"),
         "error": None,
     }
 
@@ -149,6 +156,18 @@ async def agent_decision_node(state: AgentState) -> dict[str, Any]:
             "selected_tool": "database_query",
             "tool_arguments": {"operation": "count_conversations"},
         }
+    if "demo note" in lower_query or "create note" in lower_query or "create a note" in lower_query:
+        title = "Test Note"
+        content = "Demo note body"
+        if ":" in query:
+            parts = query.split(":", 1)
+            raw_title = parts[0].lower().replace("create note", "").replace("create a note", "").replace("demo note", "").strip()
+            title = raw_title.capitalize() if raw_title else "Test Note"
+            content = parts[1].strip() or "Demo note body"
+        return {
+            "selected_tool": "create_demo_note",
+            "tool_arguments": {"title": title, "content": content},
+        }
 
     # 3. LLM-based tool decision
     available_tools = tool_registry.get_tool_definitions(user_role)
@@ -187,6 +206,133 @@ async def agent_decision_node(state: AgentState) -> dict[str, Any]:
     return {
         "selected_tool": "knowledge_search",
         "tool_arguments": {"query": query},
+    }
+
+
+async def approval_check_node(state: AgentState) -> dict[str, Any]:
+    """Evaluate whether the selected tool requires Human-in-the-Loop authorization."""
+    tool_name = state.get("selected_tool")
+    if not tool_name:
+        return {"approval_required": False}
+
+    tool = tool_registry.get(tool_name)
+    if not tool or not getattr(tool, "requires_approval", False):
+        return {"approval_required": False}
+
+    org_id = state.get("organization_id")
+    user_id = state.get("user_id")
+    tool_args = state.get("tool_arguments") or {}
+    approval_id = state.get("approval_id")
+
+    if approval_id:
+        async with db_module.async_session_maker() as session:
+            try:
+                approval = await approval_service.get_approval(session, approval_id, org_id)
+            except Exception as e:
+                logger.warning(f"Failed to retrieve approval '{approval_id}': {e}")
+                return {
+                    "approval_required": True,
+                    "approval_status": "REJECTED",
+                    "tool_error": f"Invalid approval reference: {e}",
+                    "selected_tool": None,
+                }
+
+            # 1. Terminal / non-approved status check
+            if approval.status == ApprovalStatus.REJECTED:
+                return {
+                    "approval_required": True,
+                    "approval_status": "REJECTED",
+                    "tool_error": f"Action was rejected: {approval.rejection_reason or 'No reason provided.'}",
+                    "selected_tool": None,
+                }
+            elif approval.status == ApprovalStatus.EXPIRED:
+                return {
+                    "approval_required": True,
+                    "approval_status": "EXPIRED",
+                    "tool_error": "Approval request has expired.",
+                    "selected_tool": None,
+                }
+            elif approval.status == ApprovalStatus.CANCELLED:
+                return {
+                    "approval_required": True,
+                    "approval_status": "CANCELLED",
+                    "tool_error": "Approval request was cancelled.",
+                    "selected_tool": None,
+                }
+            elif approval.status == ApprovalStatus.PENDING:
+                return {
+                    "approval_required": True,
+                    "approval_status": "PENDING",
+                    "approval_id": approval.id,
+                    "selected_tool": None,
+                }
+
+            # Security: Tamper protection - tool name must match
+            if tool_name and approval.tool_name != tool_name:
+                logger.warning(f"Tamper detected: tool mismatch '{approval.tool_name}' != '{tool_name}'")
+                return {
+                    "approval_required": True,
+                    "approval_status": "REJECTED",
+                    "tool_error": "Approval verification failed: tool name mismatch with approved record.",
+                    "selected_tool": None,
+                }
+
+            # Security: Tamper protection - arguments must match
+            if tool_args and approval.action_arguments != tool_args:
+                logger.warning(f"Tamper detected: arguments mismatch '{approval.action_arguments}' != '{tool_args}'")
+                return {
+                    "approval_required": True,
+                    "approval_status": "REJECTED",
+                    "tool_error": "Approval verification failed: tool arguments mismatch with approved record (tampering detected).",
+                    "selected_tool": None,
+                }
+
+            if approval.status == ApprovalStatus.APPROVED:
+                logger.info(f"Verified approved request '{approval_id}'. Permitting execution of '{approval.tool_name}'")
+                return {
+                    "approval_required": False,
+                    "approval_status": "APPROVED",
+                    "approval_id": approval.id,
+                    "selected_tool": approval.tool_name,
+                    "tool_arguments": approval.action_arguments,
+                }
+
+    # No approval_id provided: create new pending approval in database
+    async with db_module.async_session_maker() as session:
+        # Check if conversation exists to respect foreign key constraint
+        conv_id = state.get("conversation_id")
+        if conv_id:
+            from app.db.models.conversation import Conversation
+            res = await session.execute(select(Conversation).filter(Conversation.id == conv_id))
+            if not res.scalar_one_or_none():
+                conv_id = None
+
+        approval = await approval_service.create_approval(
+            db=session,
+            organization_id=org_id,
+            requested_by_user_id=user_id,
+            tool_name=tool_name,
+            action_type=getattr(tool, "action_type", "sensitive_action"),
+            action_arguments=tool_args,
+            reason=f"Action '{tool_name}' requires human authorization.",
+            conversation_id=conv_id,
+        )
+
+    logger.info(f"Created pending approval '{approval.id}' for tool '{tool_name}'")
+    return {
+        "approval_required": True,
+        "approval_id": approval.id,
+        "approval_status": "PENDING",
+        "approval_data": {
+            "approval_id": approval.id,
+            "tool": tool_name,
+            "action_type": getattr(tool, "action_type", "sensitive_action"),
+            "arguments": tool_args,
+            "reason": approval.reason,
+            "status": "PENDING",
+            "expires_at": approval.expires_at.isoformat() if approval.expires_at else None,
+        },
+        "selected_tool": None,  # Pause execution until approved
     }
 
 
@@ -324,6 +470,30 @@ async def generate_answer_node(state: AgentState) -> dict[str, Any]:
             "sources": [],
             "status": "completed",
         }
+
+    # Check if action is awaiting or halted on human approval
+    if state.get("approval_required"):
+        app_status = state.get("approval_status", "PENDING")
+        if app_status == "PENDING":
+            return {
+                "final_answer": "This action requires human authorization. An approval request has been created and submitted for review. Once approved, the action can be executed.",
+                "status": "pending_approval",
+            }
+        elif app_status == "REJECTED":
+            return {
+                "final_answer": state.get("tool_error") or "The action was rejected by an authorized reviewer.",
+                "status": "completed",
+            }
+        elif app_status == "EXPIRED":
+            return {
+                "final_answer": "The approval request has expired and cannot be executed.",
+                "status": "failed",
+            }
+        elif app_status == "CANCELLED":
+            return {
+                "final_answer": "The approval request was cancelled.",
+                "status": "cancelled",
+            }
 
     # 3. If tools were executed
     if tool_history:
