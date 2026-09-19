@@ -10,7 +10,9 @@ import {
   Bot, 
   Settings,
   Workflow,
-  ShieldCheck
+  ShieldCheck,
+  CheckSquare,
+  Activity,
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -27,6 +29,8 @@ export default function Sidebar() {
     { name: 'AI Assistant', href: '/assistant', icon: Bot },
     { name: 'Approvals', href: '/approvals', icon: ShieldCheck },
     { name: 'Workflows', href: '/workflows', icon: Workflow },
+    { name: 'Evaluations', href: '/evaluations', icon: CheckSquare },
+    { name: 'Observability', href: '/observability', icon: Activity },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
 

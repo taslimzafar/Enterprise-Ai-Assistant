@@ -17,6 +17,7 @@ from .workflow import (
     StepExecutionStatus,
     StepType,
 )
+from .evaluation import EvaluationRun, EvaluationRecord
 
 # Expose all models so Alembic can discover them
 __all__ = [
@@ -42,4 +43,6 @@ __all__ = [
     "ExecutionStatus",
     "StepExecutionStatus",
     "StepType",
+    "EvaluationRun",
+    "EvaluationRecord",
 ]
